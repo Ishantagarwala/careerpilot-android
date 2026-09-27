@@ -69,10 +69,23 @@ refresh token.
 - Rotation is one-time, and **reuse is detected**: presenting an already-rotated
   token revokes every session for that user and returns `reason: "reuse"`.
 
-> ⚠️ Rotation and reuse detection are **not yet covered by tests** — that logic
-> needs a database and `lib/mobileRefreshStore.ts` imports through the `@/`
-> alias, which Node's type stripping does not resolve. It is the largest
-> remaining unverified path on the server.
+**Rotation and reuse detection were verified end-to-end** against a local server
+and an in-memory MongoDB, not just unit-tested:
+
+| Scenario | Result |
+| --- | --- |
+| sign in with real credentials | 200, access + refresh returned |
+| `GET /session` with a valid bearer | 200 with the user |
+| refresh with a valid token | 200, new pair, refresh token differs |
+| **replay the old refresh token** | **401 `reason: "reuse"`** |
+| use the newly-issued token after that | 401 — all sessions revoked |
+| revoke this device | 200, then its refresh token fails |
+| revoke with no bearer | 401 |
+| wrong password | 401 `invalid_credentials` |
+
+Also verified in **production** after deploy: all four routes respond, CORS
+echoes an allowlisted origin, and a disallowed origin gets no
+`Access-Control-Allow-Origin` header at all.
 
 ### 1.2 Bot verification — implemented, needs credentials
 
