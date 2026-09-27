@@ -53,3 +53,7 @@ __pycache__/
 # expo export output
 /expo-export/
 /dist/
+
+# Play Console service-account key for `eas submit` — a credential, never committed
+play-service-account.json
+*.serviceaccount.json

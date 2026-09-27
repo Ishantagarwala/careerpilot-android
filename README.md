@@ -55,6 +55,34 @@ and the set is reproducible. `design/README.md` has the details.
 - **Distribution:** Play Store internal testing
 - **Tabs:** Hub · Career · Build · Me
 
+## Building the APK
+
+Cloud build via EAS — no local Android SDK required.
+
+```bash
+npx eas login                              # one-time
+npx eas build --platform android --profile preview
+```
+
+| Profile | Output | Use |
+| --- | --- | --- |
+| `development` | APK + dev client | local debugging against Metro |
+| `preview` | APK | sideload to a phone — **start here** |
+| `production` | AAB | Play Console upload |
+
+**Two things must be set before a build will sign in successfully:**
+
+1. `EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER` — the Google Cloud project
+   number. Without it the app reports that it cannot verify itself, which is
+   accurate. Set it in `eas.json` under the profile's `env`, or as an EAS
+   environment variable.
+2. The matching `PLAY_INTEGRITY_*` values on the **server**
+   (see the web repo's `.env.example`). Configuring only one side does not work,
+   and the error message says so.
+
+`eas submit` expects the Play service-account key at
+`./play-service-account.json`. It is gitignored — never commit it.
+
 ## Permissions
 
 Only two are declared, and both are requested at the point of use rather than on
