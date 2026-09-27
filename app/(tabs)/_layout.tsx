@@ -4,6 +4,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ChatProvider } from '@/chat/ChatProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
 import {
@@ -32,14 +33,16 @@ const TABS: { name: string; label: string; Glyph: React.ComponentType<GlyphProps
 
 export default function TabsLayout() {
   return (
-    <Tabs
-      screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: 'transparent' } }}
-      tabBar={(props) => <BottomNav {...props} />}
-    >
-      {TABS.map((t) => (
-        <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
-      ))}
-    </Tabs>
+    <ChatProvider>
+      <Tabs
+        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: 'transparent' } }}
+        tabBar={(props) => <BottomNav {...props} />}
+      >
+        {TABS.map((t) => (
+          <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
+        ))}
+      </Tabs>
+    </ChatProvider>
   );
 }
 

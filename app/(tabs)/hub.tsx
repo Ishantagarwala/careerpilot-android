@@ -1,140 +1,237 @@
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
+import React, { useCallback, useRef, useState } from 'react';
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { useAuth } from '@/auth/AuthProvider';
 import { AppBar, Screen, SectionLabel } from '@/components/Screen';
 import { Chip, ComposerShell, IconButton, SendButton } from '@/components/hub/HubControls';
-import {
-  MenuGlyph,
-  PaperclipGlyph,
-  SendGlyph,
-} from '@/components/glyphs/TabGlyphs';
+import { MenuGlyph, PaperclipGlyph, SendGlyph } from '@/components/glyphs/TabGlyphs';
+import { ChatBubble } from '@/chat/ChatBubble';
+import { useChat } from '@/chat/ChatProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
+import { MAX_MESSAGE_CHARS } from '@/api/chat';
 
 /**
- * Hub — the AI study surface, and the app's default tab.
+ * Hub — the AI study surface and the app's default tab.
  *
- * Matches design/png/02-hub-chat.png for the empty state.
+ * Wired to the real `POST /api/ai-hub/chat` SSE route. The reply streams token
+ * by token; reasoning arrives on a separate channel and stays collapsed behind
+ * a disclosure until asked for.
  *
- * The composer is deliberately non-functional in this phase: `streamChat` is an
- * explicit stub (src/api/client.ts) because React Native's fetch cannot stream
- * and the SSE transport is Phase 2 work. The input is disabled rather than
- * accepting text it cannot send — a box that swallows a prompt is worse than
- * one that says it is not ready.
+ * Offline queueing is not implemented yet (Phase 5, design/ANDROID_APP_PLAN.md
+ * §5). Until then a failed send surfaces the error in the thread and the
+ * composer stays usable, rather than silently dropping the prompt.
  */
+const STARTERS = [
+  { t: 'Explain a concept', s: 'Grounded on your uploaded notes' },
+  { t: 'Build a study plan', s: 'For a milestone you are stuck on' },
+  { t: 'Quiz me', s: 'On anything in your documents' },
+];
+
 export default function HubScreen() {
   const hub = useTheme('hub');
   const { user } = useAuth();
+  const { messages, send, stop, isStreaming, error, title, threadId, reset } = useChat();
+
   const [draft, setDraft] = useState('');
+  const listRef = useRef<FlatList>(null);
 
   const firstName = user?.name?.split(' ')[0] ?? null;
+  const canSend = draft.trim().length > 0 && !isStreaming;
+  const overLimit = draft.length > MAX_MESSAGE_CHARS;
+
+  const submit = useCallback(
+    async (text?: string) => {
+      const value = (text ?? draft).trim();
+      if (!value || isStreaming || value.length > MAX_MESSAGE_CHARS) return;
+      setDraft('');
+      await send(value);
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    },
+    [draft, isStreaming, send],
+  );
+
+  const streaming = isStreaming || messages.some((m) => m.streaming);
 
   return (
     <Screen padded={false}>
-      <View style={styles.gutter}>
-        <AppBar
-          title="Hub"
-          leading={
-            <IconButton label="Open threads">
-              <MenuGlyph color={hub.text} />
-            </IconButton>
-          }
-          trailing={
-            <View style={[styles.modelPill, { borderColor: hub.line }]}>
-              <View style={styles.liveDot} />
-              <Text style={[styles.modelText, { color: hub.text }]}>V4 Flash</Text>
-            </View>
-          }
-        />
-      </View>
-
-      <ScrollView
+      <KeyboardAvoidingView
         style={styles.flex}
-        contentContainerStyle={styles.scrollBody}
-        keyboardShouldPersistTaps="handled"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Text style={[styles.greeting, { color: hub.text }]}>
-          {firstName ? (
-            <>
-              {'Good to see you,\n'}
-              <Text style={{ color: hub.muted }}>{firstName}.</Text>
-            </>
-          ) : (
-            <>
-              {'What are we\n'}
-              <Text style={{ color: hub.muted }}>working on?</Text>
-            </>
-          )}
-        </Text>
-
-        <SectionLabel>Not ready yet</SectionLabel>
-        <View
-          style={[styles.notice, { borderColor: hub.line, backgroundColor: hub.raised }]}
-        >
-          <Text style={[styles.noticeTitle, { color: hub.text }]}>
-            Streaming chat lands next
-          </Text>
-          <Text style={[styles.noticeBody, { color: hub.muted }]}>
-            The app authenticates and syncs against careerpilot.cc today. Chat
-            needs a streaming transport — React Native&apos;s fetch cannot stream
-            server-sent events, so the Hub composer stays disabled until that is
-            wired up.
-          </Text>
+        <View style={styles.gutter}>
+          <AppBar
+            title={title ?? 'Hub'}
+            subtitle={title ? `${messages.length} messages` : undefined}
+            titleSize={title ? 'appbar' : 'screen'}
+            leading={
+              <IconButton label="Open threads" onPress={() => router.push('/threads')}>
+                <MenuGlyph color={hub.text} />
+              </IconButton>
+            }
+            trailing={
+              messages.length > 0 ? (
+                <Pressable
+                  onPress={reset}
+                  accessibilityRole="button"
+                  accessibilityLabel="Start a new thread"
+                  hitSlop={8}
+                >
+                  <Text style={[styles.newThread, { color: hub.muted }]}>New</Text>
+                </Pressable>
+              ) : (
+                <View style={[styles.modelPill, { borderColor: hub.line }]}>
+                  <View style={styles.liveDot} />
+                  <Text style={[styles.modelText, { color: hub.text }]}>V4 Flash</Text>
+                </View>
+              )
+            }
+          />
         </View>
 
-        <SectionLabel>Planned for this screen</SectionLabel>
-        <View style={styles.suggestions}>
-          {[
-            { t: 'Explain a concept', s: 'Grounded on your uploaded notes' },
-            { t: 'Build a study plan', s: 'For a milestone you are stuck on' },
-            { t: 'Quiz me', s: 'On anything in your documents' },
-          ].map((row) => (
-            <View
-              key={row.t}
-              style={[
-                styles.suggestion,
-                { borderColor: hub.line, backgroundColor: hub.surface },
-              ]}
-            >
-              <View style={styles.flexChild}>
-                <Text style={[styles.suggestionTitle, { color: hub.text }]}>{row.t}</Text>
-                <Text style={[styles.suggestionSub, { color: hub.muted }]}>{row.s}</Text>
-              </View>
+        {messages.length === 0 ? (
+          <View style={[styles.gutter, styles.flex]}>
+            <Text style={[styles.greeting, { color: hub.text }]}>
+              {firstName ? (
+                <>
+                  {'Good to see you,\n'}
+                  <Text style={{ color: hub.muted }}>{firstName}.</Text>
+                </>
+              ) : (
+                <>
+                  {'What are we\n'}
+                  <Text style={{ color: hub.muted }}>working on?</Text>
+                </>
+              )}
+            </Text>
+
+            <SectionLabel>Try</SectionLabel>
+            <View style={styles.starters}>
+              {STARTERS.map((row) => (
+                <Pressable
+                  key={row.t}
+                  onPress={() => submit(row.t)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${row.t}. ${row.s}`}
+                  style={({ pressed }) => [
+                    styles.starter,
+                    { borderColor: hub.line, backgroundColor: hub.surface },
+                    pressed ? { opacity: 0.6 } : null,
+                  ]}
+                >
+                  <View style={styles.flex}>
+                    <Text style={[styles.starterTitle, { color: hub.text }]}>{row.t}</Text>
+                    <Text style={[styles.starterSub, { color: hub.muted }]}>{row.s}</Text>
+                  </View>
+                </Pressable>
+              ))}
             </View>
-          ))}
-        </View>
-      </ScrollView>
 
-      <View style={styles.gutter}>
-        <ComposerShell>
-          <Text style={[styles.placeholder, { color: hub.muted }]}>
-            Chat is not available yet…
-          </Text>
-          <View style={styles.composerBar}>
-            <Chip
-              label="Attach"
-              leading={<PaperclipGlyph color={hub.muted} />}
-              accessibilityLabel="Attach a document"
-            />
-            <Chip label="Study plan" />
-            <View style={styles.flexChild} />
-            <SendButton disabled>
-              <SendGlyph color={hub.soft} />
-            </SendButton>
+            {threadId ? null : (
+              <Text style={[styles.hint, { color: hub.muted }]}>
+                Threads are saved to your CareerPilot account as you go.
+              </Text>
+            )}
           </View>
-        </ComposerShell>
-      </View>
+        ) : (
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={(m) => m.id}
+            renderItem={({ item }) => <ChatBubble message={item} />}
+            contentContainerStyle={styles.listBody}
+            keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            ListFooterComponent={
+              streaming ? (
+                <View style={styles.streamingRow}>
+                  <Text style={[styles.streamingText, { color: hub.muted }]}>
+                    {isStreaming ? 'responding…' : ''}
+                  </Text>
+                </View>
+              ) : null
+            }
+          />
+        )}
+
+        {error ? (
+          <View style={[styles.gutter, styles.errorWrap]}>
+            <View
+              style={[styles.errorBox, { borderColor: hub.danger }]}
+              accessibilityLiveRegion="polite"
+            >
+              <Text style={[styles.errorText, { color: hub.danger }]}>{error}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.gutter}>
+          <ComposerShell>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Ask about your notes…"
+              placeholderTextColor={hub.muted}
+              multiline
+              maxLength={MAX_MESSAGE_CHARS + 1}
+              accessibilityLabel="Message"
+              style={[styles.input, { color: hub.text }]}
+            />
+            <View style={styles.composerBar}>
+              <Chip
+                label="Attach"
+                leading={<PaperclipGlyph color={hub.muted} />}
+                accessibilityLabel="Attach a document"
+              />
+              {overLimit ? (
+                <Text style={[styles.limit, { color: hub.danger }]}>
+                  {draft.length.toLocaleString()} / {MAX_MESSAGE_CHARS.toLocaleString()}
+                </Text>
+              ) : null}
+              <View style={styles.flex} />
+              {isStreaming ? (
+                <Pressable
+                  onPress={stop}
+                  accessibilityRole="button"
+                  accessibilityLabel="Stop responding"
+                  style={[styles.stopButton, { borderColor: hub.line }]}
+                >
+                  <View style={[styles.stopSquare, { backgroundColor: hub.strong }]} />
+                </Pressable>
+              ) : (
+                <SendButton onPress={() => submit()} disabled={!canSend}>
+                  <SendGlyph color={canSend ? hub.bg : hub.soft} />
+                </SendButton>
+              )}
+            </View>
+          </ComposerShell>
+        </View>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  flexChild: { flex: 1 },
   gutter: { paddingHorizontal: space.s4 },
-  scrollBody: { paddingHorizontal: space.s4, paddingBottom: space.s6 },
+  listBody: { paddingHorizontal: space.s4, paddingBottom: space.s6 },
 
+  newThread: {
+    fontFamily: fontFamily.monoBold,
+    fontSize: 11.5,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
   modelPill: {
     height: 34,
     paddingHorizontal: 12,
@@ -154,37 +251,49 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
     marginTop: space.s2,
   },
-
-  notice: {
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderRadius: radius.card,
-    padding: space.s4,
-  },
-  noticeTitle: { fontFamily: fontFamily.heading, fontSize: 15, letterSpacing: -0.2 },
-  noticeBody: { fontFamily: fontFamily.sans, fontSize: 13.5, lineHeight: 20, marginTop: 6 },
-
-  suggestions: { gap: space.s2 },
-  suggestion: {
+  starters: { gap: space.s2 },
+  starter: {
     borderWidth: 1.5,
     borderRadius: radius.card,
     paddingHorizontal: space.s4,
     paddingVertical: 15,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.s3,
   },
-  suggestionTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 14.5 },
-  suggestionSub: { fontFamily: fontFamily.sans, fontSize: 12.5, marginTop: 2 },
+  starterTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 14.5 },
+  starterSub: { fontFamily: fontFamily.sans, fontSize: 12.5, marginTop: 2 },
+  hint: { fontFamily: fontFamily.sans, fontSize: 12, marginTop: space.s4 },
 
-  placeholder: {
+  input: {
     fontFamily: fontFamily.sans,
     fontSize: 15,
+    lineHeight: 21,
+    maxHeight: 140,
+    paddingTop: 2,
     paddingBottom: 10,
   },
-  composerBar: {
-    flexDirection: 'row',
+  composerBar: { flexDirection: 'row', alignItems: 'center', gap: space.s2 },
+  limit: { fontFamily: fontFamily.monoMedium, fontSize: 11 },
+
+  stopButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
     alignItems: 'center',
-    gap: space.s2,
+    justifyContent: 'center',
   },
+  stopSquare: { width: 13, height: 13, borderRadius: 3 },
+
+  streamingRow: { paddingTop: space.s2 },
+  streamingText: { fontFamily: fontFamily.mono, fontSize: 11 },
+
+  errorWrap: { paddingBottom: space.s2 },
+  errorBox: {
+    borderWidth: 1.5,
+    borderRadius: radius.chip,
+    paddingHorizontal: space.s3,
+    paddingVertical: 10,
+  },
+  errorText: { fontFamily: fontFamily.sans, fontSize: 13.5, lineHeight: 19 },
 });

@@ -1,9 +1,5 @@
-import {
-  API_BASE_URL,
-  ApiError,
-  configureAuth,
-  type AuthCredentials,
-} from '@/api/client';
+import { API_BASE_URL, ApiError } from '@/api/client';
+import { registerRefresher } from '@/api/credentials';
 import {
   clearAllCredentials,
   loadSessionCookie,
@@ -53,48 +49,38 @@ let activeMechanism: 'token' | 'cookie' | null = null;
 /* API client wiring                                                          */
 /* -------------------------------------------------------------------------- */
 
-const credentials: AuthCredentials = {
-  async getAccessToken() {
-    const tokens = await loadTokens();
-    return tokens?.accessToken ?? null;
-  },
-  async getCookie() {
-    return loadSessionCookie();
-  },
-  async refresh() {
-    const tokens = await loadTokens();
-    if (!tokens) return null;
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/mobile/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-      });
-      if (!res.ok) {
-        // Fail closed — a rejected refresh means the credential is dead.
-        await clearAllCredentials();
-        return null;
-      }
-      const data = (await res.json()) as { accessToken?: string; refreshToken?: string };
-      if (!data.accessToken || !data.refreshToken) {
-        await clearAllCredentials();
-        return null;
-      }
-      await saveTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
-      return data.accessToken;
-    } catch {
-      // Network failure is not an invalidation — keep the credential.
+/**
+ * Hand the JSON client a way to refresh a Bearer token.
+ *
+ * Registered rather than imported so `api/credentials.ts` can call it without
+ * importing this module, which imports it.
+ */
+registerRefresher(async () => {
+  const tokens = await loadTokens();
+  if (!tokens) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/mobile/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+    });
+    // Fail closed — a rejected refresh means the credential is dead.
+    if (!res.ok) {
+      await clearAllCredentials();
       return null;
     }
-  },
-};
-
-let wired = false;
-export function initAuth(): void {
-  if (wired) return;
-  configureAuth(credentials);
-  wired = true;
-}
+    const data = (await res.json()) as { accessToken?: string; refreshToken?: string };
+    if (!data.accessToken || !data.refreshToken) {
+      await clearAllCredentials();
+      return null;
+    }
+    await saveTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+    return data.accessToken;
+  } catch {
+    // A network failure is not an invalidation — keep the credential.
+    return null;
+  }
+});
 
 /* -------------------------------------------------------------------------- */
 /* Sign in                                                                    */
@@ -105,8 +91,6 @@ export async function signIn(
   password: string,
   captchaToken?: string,
 ): Promise<SignInResult> {
-  initAuth();
-
   const tokenResult = await tryTokenExchange(email, password, captchaToken);
   if (tokenResult.ok) return tokenResult;
 
@@ -282,8 +266,6 @@ function networkMessage(err: unknown): string {
 /* -------------------------------------------------------------------------- */
 
 export async function restoreSession(): Promise<SessionUser | null> {
-  initAuth();
-
   const tokens = await loadTokens();
   if (tokens) {
     activeMechanism = 'token';

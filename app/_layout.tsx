@@ -37,6 +37,7 @@ export default function RootLayout() {
               <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
               <Stack.Screen name="first-run" options={{ animation: 'slide_from_right' }} />
               <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+              <Stack.Screen name="threads" options={{ animation: 'slide_from_left' }} />
             </Stack>
           </AuthProvider>
         </ThemeProvider>
