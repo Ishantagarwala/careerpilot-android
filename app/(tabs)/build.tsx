@@ -173,6 +173,7 @@ function Segmented({ value, onChange }: { value: Segment; onChange: (next: Segme
             key={opt}
             onPress={() => onChange(opt)}
             accessibilityRole="tab"
+            accessibilityLabel={opt}
             accessibilityState={{ selected: active }}
             style={[styles.segment, active ? { backgroundColor: hub.surface } : null]}
           >
@@ -237,7 +238,12 @@ function ResumePanel({
         {ats?.score != null ? (
           <ScoreRing
             value={ats.score}
-            label={ats.tier ?? 'ATS score'}
+            /*
+             * Always "ATS score", never the tier. Substituting the tier here
+             * left a bare number with its meaning stripped — the tier has its
+             * own tag below, so nothing is lost by keeping the caption fixed.
+             */
+            label="ATS score"
             track={hub.soft}
             fill={hub.primary}
             text={hub.text}

@@ -57,3 +57,6 @@ __pycache__/
 # Play Console service-account key for `eas submit` — a credential, never committed
 play-service-account.json
 *.serviceaccount.json
+
+# jest transform cache
+.jest-cache/

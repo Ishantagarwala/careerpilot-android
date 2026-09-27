@@ -81,6 +81,7 @@ export default function RoadmapScreen() {
                   key={key}
                   onPress={() => setFilter(key)}
                   accessibilityRole="tab"
+                  accessibilityLabel={label}
                   accessibilityState={{ selected: active }}
                   style={[styles.segment, active ? { backgroundColor: hub.surface } : null]}
                 >
