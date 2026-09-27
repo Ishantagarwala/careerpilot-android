@@ -1,0 +1,44 @@
+{
+  "name": "careerpilot-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CareerPilot Android client — Expo + React Native",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint",
+    "mockups:render": "python3 design/build.py",
+    "mockups:sheet": "magick montage design/png/{01,02,03,04,05,06,07,08,09,10}-*.png -tile 5x2 -geometry 592x1010+14+14 -background '#0d1005' design/png/00-contact-sheet.png"
+  },
+  "dependencies": {
+    "@expo-google-fonts/anybody": "^0.4.0",
+    "@expo-google-fonts/hanken-grotesk": "^0.4.0",
+    "@expo-google-fonts/space-grotesk": "^0.4.0",
+    "@expo/vector-icons": "^15.0.2",
+    "expo": "~57.0.25",
+    "expo-constants": "~57.0.19",
+    "expo-font": "~57.0.4",
+    "expo-linking": "~57.0.11",
+    "expo-router": "~57.0.23",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.9",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "~0.21.0",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "playwright": "^1.56.0",
+    "typescript": "~5.9.0"
+  }
+}

@@ -49,3 +49,7 @@ __pycache__/
 
 # native debug symbols
 *.hprof
+
+# expo export output
+/expo-export/
+/dist/
