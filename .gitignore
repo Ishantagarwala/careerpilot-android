@@ -1,0 +1,51 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Expo / React Native
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+expo-env.d.ts
+
+# Android build output
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+*.aab
+*.apk
+
+# EAS
+.easignore
+# NOT ignoring eas.json — it holds non-secret build profiles
+
+# env & secrets — never commit
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# python (mockup render pipeline)
+__pycache__/
+*.py[cod]
+
+# native debug symbols
+*.hprof
