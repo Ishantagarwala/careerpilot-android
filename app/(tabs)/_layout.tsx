@@ -41,6 +41,8 @@ export default function TabsLayout() {
         {TABS.map((t) => (
           <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
         ))}
+        {/* Reached from Career, not the bar — the visible tab count stays at 4. */}
+        <Tabs.Screen name="roadmap" options={{ href: null, title: 'Roadmap' }} />
       </Tabs>
     </ChatProvider>
   );

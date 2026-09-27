@@ -1,124 +1,198 @@
+import { router } from 'expo-router';
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppBar, Screen, SectionLabel } from '@/components/Screen';
-import { ChevronGlyph, MicGlyph } from '@/components/glyphs/TabGlyphs';
+import { ChevronGlyph } from '@/components/glyphs/TabGlyphs';
 import { Tag } from '@/components/Tag';
-import { IconButton } from '@/components/hub/HubControls';
+import { useCareer, milestoneKey } from '@/career/useCareer';
 import { useTheme } from '@/theme/ThemeProvider';
 import { brandLight, elevation, fontFamily, radius, space } from '@/theme/tokens';
 
 /**
  * Career — Language A (brand).
  *
- * Matches design/png/04-career.png.
+ * Matches design/png/04-career.png, now reading live data from
+ * career/recommendations and roadmap.
  *
  * This is the one product screen that keeps the brand language, because the
  * career flow is where the product speaks in its own voice: the pinned
- * direction and today's milestone are the app's two most consequential pieces
- * of information. See design/DESIGN_SPEC.md §2 for the lime budget this spends.
- *
- * Data is placeholder in this phase; the endpoints it will read are
- * career/recommendations, career/select and roadmap/progress.
+ * direction and the next milestone are the app's two most consequential facts.
+ * See design/DESIGN_SPEC.md §2 for the lime budget this spends.
  */
 export default function CareerScreen() {
   const hub = useTheme('hub');
-  const b = brandLight;
+  const { loading, error, recommendations, selected, progress, pending, reload, toggleMilestone } =
+    useCareer();
+
+  const direction = selected?.careerPath ?? null;
+  const next = progress.next;
 
   return (
-    <Screen padded={false} style={{ backgroundColor: b.background }}>
+    <Screen padded={false} style={{ backgroundColor: brandLight.background }}>
       <View style={styles.gutter}>
-        <AppBar
-          title="Career"
-          trailing={
-            <IconButton bordered label="Answer assessment by voice">
-              <MicGlyph color={b.foreground} />
-            </IconButton>
-          }
-        />
+        <AppBar title="Career" />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollBody}>
-        {/* Pinned direction — the app's single most important fact */}
-        <View style={styles.card}>
-          <View style={styles.cardHead}>
-            <Tag tone="dark">Your direction</Tag>
-            <View style={styles.flexChild} />
-            <Text style={styles.changed}>CHANGED 6D AGO</Text>
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={brandLight.foreground} />
+            <Text style={styles.loadingText}>Loading your direction…</Text>
           </View>
+        ) : null}
 
-          <Text style={styles.direction}>
-            Full Stack{'\n'}Developer
-          </Text>
-
-          <View style={styles.tagRow}>
-            <Tag>MERN</Tag>
-            <Tag>India · entry</Tag>
-          </View>
-
-          <View style={styles.progressHead}>
-            <Text style={styles.progressLabel}>ROADMAP</Text>
-            <Text style={styles.progressValue}>38%</Text>
-          </View>
-          <View style={styles.track}>
-            <View style={[styles.trackFill, { width: '38%' }]} />
-          </View>
-          <Text style={styles.progressMeta}>5 of 13 milestones complete</Text>
-        </View>
-
-        <SectionLabel>Today</SectionLabel>
-        <View style={styles.todayCard}>
-          <Text style={styles.todayTitle}>Build a CRUD API with Express</Text>
-          <Text style={styles.todayMeta}>Milestone 6 · ~90 min · then push to GitHub</Text>
-          <View style={styles.todayActions}>
-            <View style={styles.todayPrimary}>
-              <Text style={styles.todayPrimaryText}>Open in Hub</Text>
-            </View>
-            <View style={styles.todaySecondary}>
-              <Text style={styles.todaySecondaryText}>Mark done</Text>
-            </View>
-          </View>
-        </View>
-
-        <SectionLabel>Recommended next</SectionLabel>
-        <View style={[styles.listCard, { borderColor: '#cfd6b8' }]}>
-          {[
-            { rank: '1', title: 'Backend Engineer (Node)', meta: '92% match · 4 missing skills' },
-            { rank: '2', title: 'Full Stack (MERN)', meta: '88% match · 6 missing skills' },
-          ].map((row, i, all) => (
-            <Pressable
-              key={row.rank}
-              accessibilityRole="button"
-              accessibilityLabel={`${row.title}, ${row.meta}`}
-              style={[styles.row, i < all.length - 1 ? styles.rowDivider : null]}
-            >
-              <View style={styles.rankBox}>
-                <Text style={styles.rankText}>{row.rank}</Text>
-              </View>
-              <View style={styles.flexChild}>
-                <Text style={styles.rowTitle}>{row.title}</Text>
-                <Text style={styles.rowMeta}>{row.meta}</Text>
-              </View>
-              <ChevronGlyph color="#8b9179" />
+        {!loading && error ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable onPress={reload} accessibilityRole="button" hitSlop={8}>
+              <Text style={styles.retry}>Retry</Text>
             </Pressable>
-          ))}
-        </View>
+          </View>
+        ) : null}
 
-        <Text style={[styles.footnote, { color: hub.muted }]}>
-          Recommendations, milestones and progress sync from careerpilot.cc. This
-          screen is not yet wired to the API.
-        </Text>
+        {!loading && !direction ? (
+          <View style={styles.card}>
+            <Tag tone="dark">Get started</Tag>
+            <Text style={styles.direction}>No direction pinned yet.</Text>
+            <Text style={styles.emptyBody}>
+              Take the assessment and CareerPilot will recommend career paths
+              scored against your skills, then build a roadmap for the one you
+              pick.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Start assessment"
+              style={[styles.cta, styles.disabledCta]}
+            >
+              <Text style={styles.ctaText}>Assessment — coming next</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {!loading && direction ? (
+          <View style={styles.card}>
+            <View style={styles.cardHead}>
+              <Tag tone="dark">Your direction</Tag>
+              <View style={styles.flexChild} />
+              {selected?.matchScore != null ? (
+                <Text style={styles.changed}>{selected.matchScore}% MATCH</Text>
+              ) : null}
+            </View>
+
+            <Text style={styles.direction}>{direction}</Text>
+
+            {selected?.reasoning ? (
+              <Text style={styles.reasoning} numberOfLines={4}>
+                {selected.reasoning}
+              </Text>
+            ) : null}
+
+            <View style={styles.progressHead}>
+              <Text style={styles.progressLabel}>ROADMAP</Text>
+              <Text style={styles.progressValue}>
+                {Math.round(progress.ratio * 100)}%
+              </Text>
+            </View>
+            <View style={styles.track}>
+              <View style={[styles.trackFill, { width: `${progress.ratio * 100}%` }]} />
+            </View>
+            <Text style={styles.progressMeta}>
+              {progress.completed} of {progress.total} milestones complete
+            </Text>
+          </View>
+        ) : null}
+
+        {!loading && next ? (
+          <>
+            <SectionLabel>Next milestone</SectionLabel>
+            <View style={styles.todayCard}>
+              <Text style={styles.todayTitle}>{next.milestone.title}</Text>
+              <Text style={styles.todayMeta}>
+                {next.stage.title ?? capitalise(next.stage.name)}
+                {' · tap to mark complete'}
+              </Text>
+              <View style={styles.todayActions}>
+                <Pressable
+                  onPress={() => toggleMilestone(milestoneKey(next.milestone), true)}
+                  disabled={pending !== null}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{
+                    checked: false,
+                    disabled: pending !== null,
+                    busy: pending === milestoneKey(next.milestone),
+                  }}
+                  accessibilityLabel={`Mark ${next.milestone.title} complete`}
+                  style={[styles.todayPrimary, pending !== null ? styles.dim : null]}
+                >
+                  <Text style={styles.todayPrimaryText}>
+                    {pending === milestoneKey(next.milestone) ? 'Saving…' : 'Mark done'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => router.push('/(tabs)/roadmap')}
+                  accessibilityRole="button"
+                  accessibilityLabel="View full roadmap"
+                  style={styles.todaySecondary}
+                >
+                  <Text style={styles.todaySecondaryText}>Full roadmap</Text>
+                </Pressable>
+              </View>
+            </View>
+          </>
+        ) : null}
+
+        {!loading && recommendations.length > 0 ? (
+          <>
+            <SectionLabel>Recommended paths</SectionLabel>
+            <View style={[styles.listCard, { borderColor: '#cfd6b8' }]}>
+              {recommendations.slice(0, 4).map((rec, i, all) => (
+                <View
+                  key={rec._id}
+                  style={[styles.row, i < all.length - 1 ? styles.rowDivider : null]}
+                >
+                  <View style={styles.rankBox}>
+                    <Text style={styles.rankText}>{i + 1}</Text>
+                  </View>
+                  <View style={styles.flexChild}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {rec.careerPath}
+                    </Text>
+                    <Text style={styles.rowMeta}>
+                      {rec.matchScore != null ? `${rec.matchScore}% match` : 'Awaiting score'}
+                      {rec.selected ? ' · your direction' : ''}
+                    </Text>
+                  </View>
+                  {rec.selected ? <Tag tone="lime">Pinned</Tag> : <ChevronGlyph color="#8b9179" />}
+                </View>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {!loading && progress.total === 0 && direction ? (
+          <Text style={[styles.footnote, { color: hub.muted }]}>
+            No roadmap yet. Generate one from the Roadmap tab.
+          </Text>
+        ) : null}
       </ScrollView>
     </Screen>
   );
 }
 
+function capitalise(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 const b = brandLight;
 
 const styles = StyleSheet.create({
-  flexChild: { flex: 1 },
+  flexChild: { flex: 1, minWidth: 0 },
   gutter: { paddingHorizontal: space.s4 },
   scrollBody: { paddingHorizontal: space.s4, paddingBottom: space.s8 },
+
+  center: { alignItems: 'center', paddingVertical: space.s10, gap: 10 },
+  loadingText: { fontFamily: fontFamily.sans, fontSize: 13, color: b.mutedForeground },
 
   card: {
     borderWidth: 2,
@@ -143,7 +217,31 @@ const styles = StyleSheet.create({
     color: b.foreground,
     marginTop: 14,
   },
-  tagRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  reasoning: {
+    fontFamily: fontFamily.sans,
+    fontSize: 13,
+    lineHeight: 20,
+    color: b.mutedForeground,
+    marginTop: 10,
+  },
+  emptyBody: {
+    fontFamily: fontFamily.sans,
+    fontSize: 14,
+    lineHeight: 21,
+    color: b.mutedForeground,
+    marginTop: 10,
+  },
+  cta: {
+    marginTop: 16,
+    height: 48,
+    borderWidth: 2,
+    borderColor: b.border,
+    borderRadius: radius.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disabledCta: { borderStyle: 'dashed' },
+  ctaText: { fontFamily: fontFamily.heading, fontSize: 15, color: b.foreground },
 
   progressHead: {
     flexDirection: 'row',
@@ -180,6 +278,7 @@ const styles = StyleSheet.create({
   todayTitle: {
     fontFamily: fontFamily.heading,
     fontSize: 16.5,
+    lineHeight: 22,
     letterSpacing: -0.3,
     color: b.primaryForeground,
   },
@@ -208,14 +307,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   todaySecondaryText: { fontFamily: fontFamily.heading, fontSize: 14.5, color: b.foreground },
+  dim: { opacity: 0.5 },
 
   listCard: { borderTopWidth: 1.5 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.s3,
-    paddingVertical: 13,
-  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.s3, paddingVertical: 13 },
   rowDivider: { borderBottomWidth: 1.5, borderBottomColor: '#cfd6b8' },
   rankBox: {
     width: 40,
@@ -230,6 +325,23 @@ const styles = StyleSheet.create({
   rankText: { fontFamily: fontFamily.headingExtraBold, fontSize: 15, color: b.foreground },
   rowTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 14.5, color: b.foreground },
   rowMeta: { fontSize: 12, color: b.mutedForeground, marginTop: 2 },
+
+  errorBox: {
+    borderWidth: 2,
+    borderColor: b.destructive,
+    borderRadius: radius.brand,
+    padding: space.s4,
+    backgroundColor: '#fdf3f3',
+    gap: 8,
+  },
+  errorText: { fontFamily: fontFamily.sans, fontSize: 13.5, lineHeight: 20, color: b.destructive },
+  retry: {
+    fontFamily: fontFamily.monoBold,
+    fontSize: 12,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: b.foreground,
+  },
 
   footnote: {
     fontFamily: fontFamily.sans,
