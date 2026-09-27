@@ -7,6 +7,7 @@ import { ChevronGlyph, MenuGlyph } from '@/components/glyphs/TabGlyphs';
 import { Tag } from '@/components/Tag';
 import { IconButton } from '@/components/hub/HubControls';
 import { milestoneKey, useCareer } from '@/career/useCareer';
+import { OfflineBanner } from '@/offline/OfflineBanner';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
 
@@ -25,7 +26,8 @@ type Filter = 'all' | 'todo' | 'done';
 
 export default function RoadmapScreen() {
   const hub = useTheme('hub');
-  const { loading, error, roadmap, progress, pending, reload, toggleMilestone } = useCareer();
+  const { loading, error, roadmap, progress, pending, stale, cachedAt, reload, toggleMilestone } =
+    useCareer();
   const [filter, setFilter] = useState<Filter>('all');
 
   // Flattened stages so the spine reads as one continuous list, with stage
@@ -55,6 +57,10 @@ export default function RoadmapScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollBody}>
+        {stale ? (
+          <OfflineBanner message="You're offline. This is your saved roadmap." cachedAt={cachedAt} />
+        ) : null}
+
         {progress.total > 0 ? (
           <View style={[styles.segmented, { backgroundColor: hub.soft }]}>
             {(

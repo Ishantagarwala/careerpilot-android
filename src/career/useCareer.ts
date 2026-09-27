@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { CacheKeys, cached, freshness } from '@/offline/cache';
 import {
   computeProgress,
   getRecommendations,
@@ -30,6 +31,10 @@ export interface CareerState {
   progress: RoadmapProgress;
   /** id of a milestone whose update is in flight */
   pending: string | null;
+  /** true when the shown data came from the offline cache */
+  stale: boolean;
+  /** 'just now' / '2h ago' — how old the cached value is */
+  cachedAt: string;
   reload(): Promise<void>;
   toggleMilestone(milestoneId: string, completed: boolean): Promise<void>;
 }
@@ -40,33 +45,32 @@ export function useCareer(): CareerState {
   const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
   const [recommendations, setRecommendations] = useState<CareerRecommendation[]>([]);
   const [pending, setPending] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [cachedAt, setCachedAt] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    // Recommendations are a nice-to-have; a failure there must not blank the
-    // whole screen when the roadmap loaded fine.
-    const [roadmapResult, recsResult] = await Promise.allSettled([
-      getRoadmap(),
-      getRecommendations(),
+    // Both go through the cache, so an offline launch still shows the last
+    // known roadmap instead of an empty screen.
+    const [roadmapHit, recsHit] = await Promise.all([
+      cached(CacheKeys.roadmap, getRoadmap),
+      cached(CacheKeys.recommendations, getRecommendations),
     ]);
 
-    if (roadmapResult.status === 'fulfilled') {
-      setRoadmap(roadmapResult.value);
-    } else {
-      setRoadmap(null);
-    }
+    setRoadmap(roadmapHit.value);
+    setRecommendations(recsHit.value ?? []);
 
-    if (recsResult.status === 'fulfilled') {
-      setRecommendations(recsResult.value);
-    } else {
-      setRecommendations([]);
-      // Surface it only when the roadmap also failed, otherwise the screen has
-      // content and this is background noise.
-      if (roadmapResult.status === 'rejected') {
-        setError(messageOf(recsResult.reason));
-      }
+    const anythingStale = roadmapHit.stale || recsHit.stale;
+    setStale(anythingStale);
+    setCachedAt(freshness(roadmapHit.at ?? recsHit.at));
+
+    // Only surface an error when there is nothing to show at all. A stale
+    // roadmap is useful; covering it with an error banner is not.
+    if (!roadmapHit.value && !recsHit.value) {
+      const reason = roadmapHit.error ?? recsHit.error;
+      if (reason) setError(messageOf(reason));
     }
 
     setLoading(false);
@@ -115,6 +119,8 @@ export function useCareer(): CareerState {
     selected,
     progress,
     pending,
+    stale,
+    cachedAt,
     reload: load,
     toggleMilestone,
   };

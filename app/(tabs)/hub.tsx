@@ -20,6 +20,8 @@ import { useChat } from '@/chat/ChatProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
 import { MAX_MESSAGE_CHARS } from '@/api/chat';
+import { OfflineBanner } from '@/offline/OfflineBanner';
+import { useConnectivity } from '@/offline/useConnectivity';
 
 /**
  * Hub — the AI study surface and the app's default tab.
@@ -42,12 +44,16 @@ export default function HubScreen() {
   const hub = useTheme('hub');
   const { user } = useAuth();
   const { messages, send, stop, isStreaming, error, title, threadId, reset } = useChat();
+  const { isOnline } = useConnectivity();
 
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
 
   const firstName = user?.name?.split(' ')[0] ?? null;
-  const canSend = draft.trim().length > 0 && !isStreaming;
+  // Offline deliberately disables sending rather than queueing. design/
+  // ANDROID_APP_PLAN.md §5: a prompt that silently sends later is worse than
+  // one that says it cannot go now.
+  const canSend = draft.trim().length > 0 && !isStreaming && isOnline;
   const overLimit = draft.length > MAX_MESSAGE_CHARS;
 
   const submit = useCallback(
@@ -98,6 +104,8 @@ export default function HubScreen() {
             }
           />
         </View>
+
+        {!isOnline ? <OfflineBanner /> : null}
 
         {messages.length === 0 ? (
           <View style={[styles.gutter, styles.flex]}>
@@ -180,7 +188,8 @@ export default function HubScreen() {
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Ask about your notes…"
+              editable={isOnline}
+              placeholder={isOnline ? 'Ask about your notes…' : 'Reconnect to ask a follow-up…'}
               placeholderTextColor={hub.muted}
               multiline
               maxLength={MAX_MESSAGE_CHARS + 1}

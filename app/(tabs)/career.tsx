@@ -6,6 +6,7 @@ import { AppBar, Screen, SectionLabel } from '@/components/Screen';
 import { ChevronGlyph } from '@/components/glyphs/TabGlyphs';
 import { Tag } from '@/components/Tag';
 import { useCareer, milestoneKey } from '@/career/useCareer';
+import { OfflineBanner } from '@/offline/OfflineBanner';
 import { useTheme } from '@/theme/ThemeProvider';
 import { brandLight, elevation, fontFamily, radius, space } from '@/theme/tokens';
 
@@ -22,8 +23,18 @@ import { brandLight, elevation, fontFamily, radius, space } from '@/theme/tokens
  */
 export default function CareerScreen() {
   const hub = useTheme('hub');
-  const { loading, error, recommendations, selected, progress, pending, reload, toggleMilestone } =
-    useCareer();
+  const {
+    loading,
+    error,
+    recommendations,
+    selected,
+    progress,
+    pending,
+    stale,
+    cachedAt,
+    reload,
+    toggleMilestone,
+  } = useCareer();
 
   const direction = selected?.careerPath ?? null;
   const next = progress.next;
@@ -35,6 +46,13 @@ export default function CareerScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollBody}>
+        {stale ? (
+          <OfflineBanner
+            message="You're offline. Showing your last synced direction."
+            cachedAt={cachedAt}
+          />
+        ) : null}
+
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color={brandLight.foreground} />

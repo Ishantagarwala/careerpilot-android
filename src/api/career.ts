@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiFetch, ApiError } from './client';
 
 /**
  * Career + roadmap API.
@@ -99,14 +99,21 @@ export interface Roadmap {
  *
  * `refresh=1` asks the server to regenerate it with the LLM, which is slow and
  * costs a model call — only pass it from an explicit user action.
+ *
+ * Throws on failure rather than returning null: the offline cache needs to SEE
+ * the failure so it can fall back to a stored roadmap. Callers that treat "no
+ * roadmap yet" as normal go through `cached()`, which returns null for both a
+ * missing roadmap and an unreachable server — the 404 case is handled here.
  */
 export async function getRoadmap(options: { refresh?: boolean } = {}): Promise<Roadmap | null> {
   const path = options.refresh ? '/api/roadmap?refresh=1' : '/api/roadmap';
   try {
     return await apiFetch<Roadmap>(path);
-  } catch {
-    // No roadmap yet is a normal first-run state, not an error worth throwing.
-    return null;
+  } catch (err) {
+    // A 404 means no roadmap has been generated yet — a real answer, not a
+    // failure, and caching it would pin an empty state.
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
   }
 }
 

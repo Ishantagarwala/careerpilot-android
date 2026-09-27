@@ -12,6 +12,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getThread, listThreads, type ChatThread } from '@/api/chat';
+import { CacheKeys, cached, freshness } from '@/offline/cache';
+import { OfflineBanner } from '@/offline/OfflineBanner';
 import { useChat, type ChatMessage } from '@/chat/ChatProvider';
 import { PlusGlyph } from '@/components/glyphs/TabGlyphs';
 import { BrandWordmark } from '@/components/brand/BrandWordmark';
@@ -38,14 +40,19 @@ export default function ThreadsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [opening, setOpening] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [cachedAt, setCachedAt] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
-    try {
-      setThreads(await listThreads());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load threads.');
-      setThreads([]);
+    // Read-through cache: an offline launch still lists the threads the user
+    // has seen, labelled with how old they are.
+    const hit = await cached(CacheKeys.threads, listThreads);
+    setThreads(hit.value ?? []);
+    setStale(hit.stale);
+    setCachedAt(freshness(hit.at));
+    if (!hit.value && hit.error) {
+      setError(hit.error instanceof Error ? hit.error.message : 'Could not load threads.');
     }
   }, []);
 
@@ -117,6 +124,8 @@ export default function ThreadsScreen() {
         accessibilityLabel="Search threads"
         style={[styles.search, { backgroundColor: hub.soft, color: hub.text }]}
       />
+
+      {stale ? <OfflineBanner message="You're offline. These threads are saved on this device." cachedAt={cachedAt} /> : null}
 
       {error ? (
         <View style={styles.center}>
