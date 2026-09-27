@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { API_BASE_URL, ApiError } from '@/api/client';
+import { apiFetch } from '@/api/client';
 import { BrandButton, BrandField } from '@/components/brand/BrandControls';
 import { BrandWordmark } from '@/components/brand/BrandWordmark';
 import { brandLight, space } from '@/theme/tokens';
@@ -42,15 +42,19 @@ export default function RegisterScreen() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+      /*
+       * Sent through the shared client so the error contract is read in ONE
+       * place. This previously read `data.error`, but every api route on the
+       * server answers `{ message }` — 111 occurrences of `message` against
+       * zero response-level `error` fields. The result was that a specific,
+       * actionable server message ("Please complete the captcha.") was thrown
+       * away and replaced with a bare "Registration failed (400)".
+       */
+      await apiFetch('/api/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
+        anonymous: true,
+        body: { name: name.trim(), email: email.trim(), password },
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new ApiError(data.error ?? `Registration failed (${res.status})`, res.status);
-      }
       // Account created — send them to sign in rather than assuming a session.
       router.replace('/(auth)/sign-in');
     } catch (err) {
@@ -112,6 +116,19 @@ export default function RegisterScreen() {
           <Text style={styles.hint}>Use at least 8 characters.</Text>
         ) : null}
 
+        {/*
+          Stated up front. The server requires hCaptcha for registration and a
+          native app cannot solve it, so this cannot succeed yet — and a form
+          that lets you fill it in and then fails is worse than one that says so.
+        */}
+        <View style={styles.notice}>
+          <Text style={styles.noticeTitle}>Sign-up is not available in the app yet</Text>
+          <Text style={styles.noticeBody}>
+            Registration needs a bot check that only runs in a browser. Create
+            your account on careerpilot.cc, then sign in here.
+          </Text>
+        </View>
+
         {error ? (
           <View style={styles.error} accessibilityLiveRegion="polite">
             <Text style={styles.errorText}>{error}</Text>
@@ -156,6 +173,28 @@ const styles = StyleSheet.create({
   },
   form: { marginTop: space.s2 },
   hint: { marginTop: space.s2, fontSize: 12.5, color: b.mutedForeground },
+  notice: {
+    marginTop: space.s4,
+    borderWidth: 2,
+    borderColor: '#b9bfa4',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: space.s4,
+    backgroundColor: '#fbfcf4',
+  },
+  noticeTitle: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: brandLight.foreground,
+  },
+  noticeBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: brandLight.mutedForeground,
+    marginTop: 6,
+  },
   error: {
     marginTop: space.s4,
     borderWidth: 2,

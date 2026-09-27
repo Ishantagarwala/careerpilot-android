@@ -1,4 +1,5 @@
 import { API_BASE_URL } from './base';
+import { errorMessage } from './errorMessage';
 import { getCredentialHeaders, refreshAccessToken } from './credentials';
 
 /**
@@ -101,15 +102,6 @@ function safeJsonParse(text: string): unknown {
   } catch {
     return text;
   }
-}
-
-function errorMessage(body: unknown, status: number): string {
-  if (body && typeof body === 'object' && 'error' in body) {
-    const err = (body as { error: unknown }).error;
-    if (typeof err === 'string') return err;
-  }
-  if (typeof body === 'string' && body.trim()) return body.slice(0, 200);
-  return `Request failed (${status})`;
 }
 
 export { API_BASE_URL };

@@ -23,7 +23,8 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.USE_BIOMETRIC"
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
       ]
     },
     "plugins": [
@@ -46,7 +47,11 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "https://careerpilot.cc"
+      "apiBaseUrl": "https://careerpilot.cc",
+      "router": {},
+      "eas": {
+        "projectId": "b71ee2e5-eb63-4280-b3be-b9e428473898"
+      }
     }
   }
 }
