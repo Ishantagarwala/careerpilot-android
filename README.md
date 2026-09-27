@@ -60,9 +60,15 @@ and the set is reproducible. `design/README.md` has the details.
 Cloud build via EAS — no local Android SDK required.
 
 ```bash
-npx eas login                              # one-time
-npx eas build --platform android --profile preview
+npx eas-cli@latest login                   # one-time, interactive
+npx eas-cli@latest build --platform android --profile preview
 ```
+
+> The global `eas` command is not `npx eas` — that package name resolves to
+> nothing. Use `npx eas-cli@latest`, or install `eas-cli` globally.
+>
+> A cloud build requires an Expo account; `eas whoami` reports `Not logged in`
+> until you authenticate. That login is interactive, so it has to be you.
 
 | Profile | Output | Use |
 | --- | --- | --- |
