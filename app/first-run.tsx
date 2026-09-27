@@ -56,7 +56,7 @@ export default function FirstRunScreen() {
         />
         <ExplainerCard
           title="Biometric unlock"
-          body="Stay signed in without retyping your password each session."
+          body="Stay signed in without retyping your password. You choose whether to turn this on when you sign in."
           glyph={<LockGlyph />}
         />
       </View>

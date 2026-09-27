@@ -141,7 +141,11 @@ export default function BuildScreen() {
 function Segmented({ value, onChange }: { value: Segment; onChange: (next: Segment) => void }) {
   const hub = useTheme('hub');
   return (
-    <View style={[styles.segmented, { backgroundColor: hub.soft }]} accessibilityRole="tablist">
+    <View
+      style={[styles.segmented, { backgroundColor: hub.soft }]}
+      accessibilityRole="tablist"
+      accessibilityLabel="Build section"
+    >
       {SEGMENTS.map((opt) => {
         const active = opt === value;
         return (

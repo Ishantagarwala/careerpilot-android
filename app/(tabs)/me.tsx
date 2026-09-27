@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/AuthProvider';
+import {
+  biometricCapability,
+  capabilityLabel,
+  disableBiometric,
+  isBiometricEnabled,
+  type BiometricCapability,
+} from '@/auth/biometrics';
 import { AppBar, Screen, SectionLabel } from '@/components/Screen';
 import { ChevronGlyph } from '@/components/glyphs/TabGlyphs';
 import { Tag } from '@/components/Tag';
+import { haptics } from '@/ui/haptics';
 import { useTheme, useThemeController, type ThemeMode } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
 
@@ -24,6 +32,28 @@ export default function MeScreen() {
   const { signOut, user, busy } = useAuth();
   const { mode, setMode } = useThemeController();
   const [voiceReplies, setVoiceReplies] = useState(true);
+
+  /*
+   * The sign-in card used to read "Biometric unlock is on" unconditionally,
+   * which was simply untrue: there is no way to know without asking the device.
+   * Capability and enrolment are separate answers, and a device with no enrolled
+   * fingerprint must not be told the feature is on.
+   */
+  const [capability, setCapability] = useState<BiometricCapability | null>(null);
+  const [biometricOn, setBiometricOn] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [cap, enabled] = await Promise.all([biometricCapability(), isBiometricEnabled()]);
+      if (cancelled) return;
+      setCapability(cap);
+      setBiometricOn(enabled);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const initial = (user?.name?.trim()?.[0] ?? user?.email?.trim()?.[0] ?? 'C').toUpperCase();
 
@@ -72,7 +102,11 @@ export default function MeScreen() {
           <View style={styles.row}>
             <Text style={[styles.rowTitle, { color: hub.text }]}>Theme</Text>
             <View style={styles.flexChild} />
-            <View style={[styles.segmented, { backgroundColor: hub.soft }]}>
+            <View
+              style={[styles.segmented, { backgroundColor: hub.soft }]}
+              accessibilityRole="tablist"
+              accessibilityLabel="Theme"
+            >
               {MODES.map((m) => {
                 const active = m === mode;
                 return (
@@ -127,8 +161,23 @@ export default function MeScreen() {
           <SettingRow label="Edit profile" />
           <SettingRow
             label="Remembered sign-in"
-            meta="Biometric unlock is on"
-            trailing={<Tag>Fingerprint</Tag>}
+            meta={biometricMeta(capability, biometricOn)}
+            trailing={
+              capability?.available && biometricOn ? (
+                <Tag tone="lime">{capabilityLabel(capability.kind)}</Tag>
+              ) : (
+                <Tag>Off</Tag>
+              )
+            }
+            onPress={
+              capability?.available && biometricOn
+                ? async () => {
+                    await disableBiometric();
+                    setBiometricOn(false);
+                    haptics.tap();
+                  }
+                : undefined
+            }
             divider
           />
           <SettingRow label="Offline downloads" meta="Manage cached threads" divider />
@@ -169,16 +218,20 @@ function SettingRow({
   meta,
   trailing,
   divider = false,
+  onPress,
 }: {
   label: string;
   meta?: string;
   trailing?: React.ReactNode;
   divider?: boolean;
+  onPress?: () => void;
 }) {
   const hub = useTheme('hub');
   return (
     <Pressable
-      accessibilityRole="button"
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={meta ? `${label}, ${meta}` : label}
       style={[styles.row, divider ? styles.divider : null, { borderTopColor: hub.line }]}
     >
@@ -189,6 +242,17 @@ function SettingRow({
       {trailing ?? <ChevronGlyph color={hub.muted} />}
     </Pressable>
   );
+}
+
+/** Truthful subtitle for the remembered-sign-in row. */
+function biometricMeta(
+  capability: BiometricCapability | null,
+  enabled: boolean,
+): string {
+  if (!capability) return 'Checking this device…';
+  if (!capability.available) return capability.reason ?? 'Not available on this device';
+  if (!enabled) return `Available — turn on at sign-in with ${capabilityLabel(capability.kind)}`;
+  return `${capabilityLabel(capability.kind)} unlock is on — tap to turn off`;
 }
 
 const styles = StyleSheet.create({

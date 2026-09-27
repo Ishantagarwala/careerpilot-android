@@ -7,6 +7,7 @@ import { ChevronGlyph } from '@/components/glyphs/TabGlyphs';
 import { Tag } from '@/components/Tag';
 import { useCareer, milestoneKey } from '@/career/useCareer';
 import { OfflineBanner } from '@/offline/OfflineBanner';
+import { haptics } from '@/ui/haptics';
 import { useTheme } from '@/theme/ThemeProvider';
 import { brandLight, elevation, fontFamily, radius, space } from '@/theme/tokens';
 
@@ -132,7 +133,10 @@ export default function CareerScreen() {
               </Text>
               <View style={styles.todayActions}>
                 <Pressable
-                  onPress={() => toggleMilestone(milestoneKey(next.milestone), true)}
+                  onPress={async () => {
+                    haptics.confirm();
+                    await toggleMilestone(milestoneKey(next.milestone), true);
+                  }}
                   disabled={pending !== null}
                   accessibilityRole="checkbox"
                   accessibilityState={{

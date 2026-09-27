@@ -8,6 +8,7 @@ import { Tag } from '@/components/Tag';
 import { IconButton } from '@/components/hub/HubControls';
 import { milestoneKey, useCareer } from '@/career/useCareer';
 import { OfflineBanner } from '@/offline/OfflineBanner';
+import { haptics } from '@/ui/haptics';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
 
@@ -62,7 +63,11 @@ export default function RoadmapScreen() {
         ) : null}
 
         {progress.total > 0 ? (
-          <View style={[styles.segmented, { backgroundColor: hub.soft }]}>
+          <View
+            style={[styles.segmented, { backgroundColor: hub.soft }]}
+            accessibilityRole="tablist"
+            accessibilityLabel="Filter milestones"
+          >
             {(
               [
                 ['all', `All ${progress.total}`],
@@ -156,7 +161,15 @@ export default function RoadmapScreen() {
                       <View key={key} style={styles.milestone}>
                         <View style={styles.rail}>
                           <Pressable
-                            onPress={() => toggleMilestone(key, !milestone.completed)}
+                            onPress={async () => {
+                              const target = !milestone.completed;
+                              // Fired before the await so the feedback is
+                              // immediate; the optimistic update is the visual
+                              // half of the same confirmation.
+                              if (target) haptics.confirm();
+                              else haptics.tap();
+                              await toggleMilestone(key, target);
+                            }}
                             disabled={pending !== null}
                             accessibilityRole="checkbox"
                             accessibilityState={{

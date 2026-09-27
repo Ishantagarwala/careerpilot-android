@@ -55,6 +55,21 @@ and the set is reproducible. `design/README.md` has the details.
 - **Distribution:** Play Store internal testing
 - **Tabs:** Hub · Career · Build · Me
 
+## Permissions
+
+Only two are declared, and both are requested at the point of use rather than on
+launch:
+
+| Permission | Requested when | State |
+| --- | --- | --- |
+| `USE_BIOMETRIC` | the user chooses "Remember with fingerprint/face" on sign-in | wired |
+| `RECORD_AUDIO` | the voice feature is first used | **not yet** — voice is not built |
+
+`RECORD_AUDIO` is declared but never requested, because there is no microphone
+feature to attach it to yet. Declaring it early is harmless; requesting it on
+launch would not be, and asking before the user has seen the feature is how you
+earn a permanent denial.
+
 ## Open decisions
 
 Blocking the design from being final:

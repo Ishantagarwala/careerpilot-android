@@ -1,8 +1,10 @@
 import { Link } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +13,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/auth/AuthProvider';
+import {
+  authenticateForSignIn,
+  biometricCapability,
+  capabilityLabel,
+  disableBiometric,
+  enableBiometric,
+  isBiometricEnabled,
+  type BiometricCapability,
+} from '@/auth/biometrics';
 import {
   BrandButton,
   BrandField,
@@ -26,11 +37,10 @@ import { brandLight, space } from '@/theme/tokens';
  * Matches design/png/01-sign-in.png.
  *
  * NOTE ON BOT VERIFICATION: the mockup shows an hCaptcha widget, but hCaptcha
- * is a web widget and does not render in React Native. The server's login chain
- * hard-fails without a valid token, so nobody can sign in until Phase 0 resolves
- * this (design/API_CONTRACT.md §1.2 — Play Integrity is the recommended route).
- * What is rendered below is an honest notice, not a fake checkbox: a control
- * that looks interactive but does nothing is worse than no control.
+ * is a web widget and does not render in React Native. The mobile path uses Play
+ * Integrity instead (src/auth/playIntegrity.ts). Until that module is wired up,
+ * the notice below states the real reason rather than showing a checkbox that
+ * does nothing.
  */
 export default function SignInScreen() {
   const { signIn, busy, error } = useAuth();
@@ -40,12 +50,76 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
+  const [capability, setCapability] = useState<BiometricCapability | null>(null);
+  const [biometricReady, setBiometricReady] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const [biometricNote, setBiometricNote] = useState<string | null>(null);
+
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [cap, enabled] = await Promise.all([biometricCapability(), isBiometricEnabled()]);
+      if (cancelled) return;
+      setCapability(cap);
+      setBiometricReady(enabled);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSubmit() {
     if (!canSubmit) return;
     await signIn(email.trim(), password);
   }
+
+  /**
+   * Sign in using the stored credential.
+   *
+   * A deliberate cancel keeps the stored credential — the user changed their
+   * mind, not their device. A genuine failure wipes it, because a credential
+   * that no longer authenticates is worse than none: it makes the button look
+   * broken on every launch.
+   */
+  const onBiometricSignIn = useCallback(async () => {
+    setBiometricBusy(true);
+    setBiometricNote(null);
+    try {
+      const auth = await authenticateForSignIn();
+      if (!auth.ok) {
+        if (auth.reason === 'failed') {
+          await disableBiometric();
+          setBiometricReady(false);
+          setBiometricNote('Biometric sign-in was turned off. Sign in with your password.');
+        }
+        return;
+      }
+      const result = await signIn(auth.email, auth.password);
+      if (!result.ok) {
+        // The stored password is stale — most likely changed elsewhere.
+        await disableBiometric();
+        setBiometricReady(false);
+        setBiometricNote('Your saved sign-in no longer works. Enter your password.');
+      }
+    } finally {
+      setBiometricBusy(false);
+    }
+  }, [signIn]);
+
+  /** Remember the credentials once a sign-in has actually succeeded. */
+  const onRemember = useCallback(async () => {
+    if (!canSubmit) return;
+    setBiometricBusy(true);
+    setBiometricNote(null);
+    const result = await signIn(email.trim(), password);
+    if (result.ok) {
+      await enableBiometric(email.trim(), password);
+      setBiometricReady(true);
+    }
+    setBiometricBusy(false);
+  }, [canSubmit, email, password, signIn]);
 
   return (
     <KeyboardAvoidingView
@@ -71,6 +145,39 @@ export default function SignInScreen() {
         <Text style={styles.lede}>
           Your study hub, roadmap and resume — one calm place to work from.
         </Text>
+
+        {biometricReady && capability?.available ? (
+          <View style={styles.biometric}>
+            <Pressable
+              onPress={onBiometricSignIn}
+              disabled={biometricBusy}
+              accessibilityRole="button"
+              accessibilityLabel={`Sign in with ${capabilityLabel(capability.kind)}`}
+              accessibilityState={{ busy: biometricBusy, disabled: biometricBusy }}
+              style={[styles.biometricButton, biometricBusy ? styles.dim : null]}
+            >
+              {biometricBusy ? (
+                <ActivityIndicator color={brandLight.primaryForeground} />
+              ) : (
+                <Text style={styles.biometricText}>
+                  Sign in with {capabilityLabel(capability.kind)}
+                </Text>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={async () => {
+                await disableBiometric();
+                setBiometricReady(false);
+                setBiometricNote('Saved sign-in removed.');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Forget saved sign-in"
+              hitSlop={10}
+            >
+              <Text style={styles.biometricForget}>Use my password instead</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.form}>
           <BrandField
@@ -120,6 +227,12 @@ export default function SignInScreen() {
           </Text>
         </View>
 
+        {biometricNote ? (
+          <Text style={styles.biometricNote} accessibilityLiveRegion="polite">
+            {biometricNote}
+          </Text>
+        ) : null}
+
         {error ? (
           <View style={styles.error} accessibilityLiveRegion="polite">
             <Text style={styles.errorText}>{error}</Text>
@@ -133,6 +246,17 @@ export default function SignInScreen() {
             loading={busy}
             disabled={!canSubmit}
           />
+          {capability?.available && !biometricReady ? (
+            <>
+              <View style={{ height: space.s3 }} />
+              <BrandButton
+                label={`Remember with ${capabilityLabel(capability.kind)}`}
+                variant="ghost"
+                onPress={onRemember}
+                disabled={!canSubmit || biometricBusy}
+              />
+            </>
+          ) : null}
           <View style={{ height: space.s3 }} />
           <Link href="/(auth)/register" asChild>
             <BrandButton label="Create an account" variant="ghost" />
@@ -236,4 +360,34 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 13.5, lineHeight: 19, color: b.destructive },
 
   actions: { marginTop: space.s6, paddingBottom: space.s2 },
+
+  biometric: { marginTop: space.s6, alignItems: 'center', gap: 10 },
+  biometricButton: {
+    width: '100%',
+    height: 54,
+    borderWidth: 2,
+    borderColor: b.border,
+    borderRadius: 8,
+    backgroundColor: b.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  biometricText: {
+    fontFamily: 'Anybody_700Bold',
+    fontSize: 16,
+    color: b.primaryForeground,
+    letterSpacing: -0.2,
+  },
+  biometricForget: {
+    fontFamily: 'HankenGrotesk_600SemiBold',
+    fontSize: 13,
+    color: b.mutedForeground,
+  },
+  biometricNote: {
+    marginTop: space.s4,
+    fontSize: 13,
+    lineHeight: 19,
+    color: b.mutedForeground,
+  },
+  dim: { opacity: 0.5 },
 });

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getThread, listThreads, type ChatThread } from '@/api/chat';
 import { CacheKeys, cached, freshness } from '@/offline/cache';
 import { OfflineBanner } from '@/offline/OfflineBanner';
+import { haptics } from '@/ui/haptics';
 import { useChat, type ChatMessage } from '@/chat/ChatProvider';
 import { PlusGlyph } from '@/components/glyphs/TabGlyphs';
 import { BrandWordmark } from '@/components/brand/BrandWordmark';
@@ -70,6 +71,7 @@ export default function ThreadsScreen() {
   const open = useCallback(
     async (thread: ChatThread) => {
       setOpening(thread._id);
+      haptics.tap();
       try {
         const detail = await getThread(thread._id);
         loadThread(
@@ -83,6 +85,7 @@ export default function ThreadsScreen() {
         );
         router.back();
       } catch (err) {
+        haptics.warn();
         setError(err instanceof Error ? err.message : 'Could not open that thread.');
       } finally {
         setOpening(null);
