@@ -106,8 +106,10 @@ describe('CareerScreen', () => {
     await waitFor(() => {
       expect(screen.getByText('No direction pinned yet.')).toBeTruthy();
     });
-    // and it must not offer a working CTA for a feature that does not exist
-    expect(screen.getByText(/Assessment — coming next/i)).toBeTruthy();
+    // and it must offer a CTA that actually goes somewhere — the assessment
+    // screen now exists, so this asserts the working control rather than a
+    // placeholder label.
+    expect(screen.getByLabelText('Start the assessment')).toBeTruthy();
   });
 
   it('does not blank the screen when the roadmap is missing', async () => {

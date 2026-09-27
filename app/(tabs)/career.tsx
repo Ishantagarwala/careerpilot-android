@@ -80,11 +80,12 @@ export default function CareerScreen() {
               pick.
             </Text>
             <Pressable
+              onPress={() => router.push('/assessment')}
               accessibilityRole="button"
-              accessibilityLabel="Start assessment"
-              style={[styles.cta, styles.disabledCta]}
+              accessibilityLabel="Start the assessment"
+              style={styles.cta}
             >
-              <Text style={styles.ctaText}>Assessment — coming next</Text>
+              <Text style={styles.ctaText}>Start the assessment</Text>
             </Pressable>
           </View>
         ) : null}
