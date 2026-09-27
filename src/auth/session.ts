@@ -1,5 +1,6 @@
 import { API_BASE_URL, ApiError } from '@/api/client';
 import { registerRefresher } from '@/api/credentials';
+import { obtainIntegrityToken } from './playIntegrity';
 import {
   clearAllCredentials,
   loadSessionCookie,
@@ -27,9 +28,11 @@ import {
  * is absent (404/405). When the server ships the route, this file needs no
  * change — the fallback simply stops being reached.
  *
- * Neither path skips bot verification. Problem: hCaptcha is a web widget and
- * does not run in React Native, so `captchaToken` is currently absent and the
- * server's fail-closed chain will reject it. Resolving that is Phase 0.
+ * Neither path skips bot verification. hCaptcha is a web widget that cannot run
+ * in React Native, so the mobile path uses Play Integrity instead
+ * (src/auth/playIntegrity.ts). That module is not wired up yet, so sign-in
+ * currently fails with an explanation rather than a server rejection the user
+ * cannot act on.
  */
 
 export type SignInResult =
@@ -86,18 +89,28 @@ registerRefresher(async () => {
 /* Sign in                                                                    */
 /* -------------------------------------------------------------------------- */
 
-export async function signIn(
+export async function signIn(email: string, password: string): Promise<SignInResult> {
+  // Obtained before the request so a build that cannot attest fails with an
+  // explanation rather than a server rejection the user cannot act on.
+  const integrityToken = await obtainIntegrityToken();
+  return signInWith(email, password, integrityToken);
+}
+
+async function signInWith(
   email: string,
   password: string,
-  captchaToken?: string,
+  integrityToken: string | null,
 ): Promise<SignInResult> {
-  const tokenResult = await tryTokenExchange(email, password, captchaToken);
+  const tokenResult = await tryTokenExchange(email, password, integrityToken);
   if (tokenResult.ok) return tokenResult;
 
   // Only fall back when the endpoint genuinely is not there. A rejected
   // credential must surface as a rejection, not as a second auth attempt.
   if (tokenResult.fallbackEligible) {
-    return tryCookieSignIn(email, password, captchaToken);
+    // The web cookie path has no integrity mechanism, so on a production
+    // deployment it will be refused by bot verification. It still exists for
+    // local development, where verification is skipped.
+    return tryCookieSignIn(email, password);
   }
   return tokenResult.result;
 }
@@ -110,22 +123,32 @@ type TokenAttempt =
 async function tryTokenExchange(
   email: string,
   password: string,
-  captchaToken?: string,
+  integrityToken: string | null,
 ): Promise<TokenAttempt> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/auth/mobile/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ email, password, captchaToken }),
+      body: JSON.stringify({
+        email,
+        password,
+        // Omitted rather than sent as null: the server treats a present-but-
+        // empty value differently from absent.
+        ...(integrityToken ? { integrityToken } : {}),
+      }),
     });
 
     if (res.status === 404 || res.status === 405) {
       return { ok: false, fallbackEligible: true };
     }
 
+    // The mobile route answers { message, reason } — not { error }, which the
+    // rest of the app uses. Read both so a future change in either direction
+    // does not swallow the reason.
     const data = (await res.json().catch(() => ({}))) as {
       accessToken?: string;
       refreshToken?: string;
+      message?: string;
       error?: string;
     };
 
@@ -133,7 +156,10 @@ async function tryTokenExchange(
       return {
         ok: false,
         fallbackEligible: false,
-        result: { ok: false, error: data.error ?? `Sign-in failed (${res.status})` },
+        result: {
+          ok: false,
+          error: data.message ?? data.error ?? `Sign-in failed (${res.status})`,
+        },
       };
     }
 
@@ -157,11 +183,7 @@ async function tryTokenExchange(
  * residential-IP assertion, per-email rate limit, captcha, then bcrypt. This
  * calls the same endpoint the web form does, so every gate still applies.
  */
-async function tryCookieSignIn(
-  email: string,
-  password: string,
-  captchaToken?: string,
-): Promise<SignInResult> {
+async function tryCookieSignIn(email: string, password: string): Promise<SignInResult> {
   try {
     const csrfRes = await fetch(`${API_BASE_URL}/api/auth/csrf`, {
       headers: { Accept: 'application/json' },
@@ -169,9 +191,7 @@ async function tryCookieSignIn(
     const { csrfToken } = (await csrfRes.json()) as { csrfToken?: string };
     if (!csrfToken) return { ok: false, error: 'Could not start sign-in (no CSRF token)' };
 
-    // NextAuth has no captcha field; the token rides along for the mobile path.
     const form = new URLSearchParams({ email, password, csrfToken, json: 'true' });
-    if (captchaToken) form.set('captchaToken', captchaToken);
 
     const res = await fetch(`${API_BASE_URL}/api/auth/callback/credentials`, {
       method: 'POST',

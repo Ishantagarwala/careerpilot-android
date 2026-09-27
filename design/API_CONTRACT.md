@@ -14,73 +14,102 @@ Last verified against web commit: `74fd996` (`CareerPliot` @ `main`).
 
 ---
 
-## 1. Required server changes (Phase 0 — blocking)
+## 1. Server changes (Phase 0)
 
-Nothing in this section exists yet. Until all three are done, **no native client
-can authenticate**.
+**Status: implemented in the web repo, one config step outstanding.**
 
-### 1.1 Device token exchange — `POST /api/auth/mobile/token`
+| Item | State |
+| --- | --- |
+| 1.1 Device token exchange | ✅ Implemented |
+| 1.2 Bot verification | ✅ Implemented — **needs Play Integrity credentials configured** |
+| 1.3 CORS | ✅ Implemented |
 
-Auth.js is configured with no `cookies` block (`lib/auth.ts`), so it uses its
-defaults, which include `SameSite=Lax`. A native app is a cross-site origin, so
-those cookies are never sent: login would appear to succeed and every subsequent
-request would be anonymous.
+Until the Play Integrity credentials are set on the server, mobile sign-in is
+refused (see 1.2). That is deliberate, not a bug.
 
-The route must run the **same** gate chain as `authorize()` — do not fork or
-soften it:
+### 1.1 Device token exchange — implemented
 
-1. Reject non-string credentials (blocks NoSQL `$ne` injection)
-2. `isAllowedEmailProvider(email)`
-3. `assertResidentialIp({ ip, email })`
-4. Rate limit per email
-5. Bot verification (see §1.2)
-6. `bcrypt` compare against `User.findOne().select('+password')`
+`POST /api/auth/mobile/token` runs the same gate chain as web sign-in
+(`lib/authGates.ts`), then mints a short-lived access token plus a rotating
+refresh token.
 
-On success it returns a short-lived access token plus a rotating refresh token.
-The app stores them in `expo-secure-store` (Android Keystore-backed) and sends
-`Authorization: Bearer <token>`.
+**Request**
 
-**Requirements**
-
-- Access token TTL ~15 min; refresh token TTL ~60 days, rotated on every use
-- Rotation must invalidate the previous refresh token (reuse detection)
-- A revocation endpoint, so "sign out my other phone" is possible
-- Never accept an expired access token — fail closed, as the rest of the auth
-  path already does
-
-**Why not `SameSite=None` cookies instead:** it is a smaller change but loosens
-the web app's cookie posture and forces CSRF compensation. The token exchange
-leaves the web's security model untouched and gives per-device revocation, which
-cookies cannot express.
-
-### 1.2 Bot verification without a web widget
-
-The login chain hard-fails on a missing/invalid hCaptcha token
-(`SYSTEM_WORKFLOW.md` §3 step 6). **hCaptcha is a web widget and does not run in
-React Native.**
-
-- **Recommended:** Play Integrity API. The app obtains an integrity verdict and
-  the server verifies it in place of a captcha token.
-- **Interim:** the hCaptcha Android SDK, which pulls in Google Play Services.
-- **Do not:** skip bot verification for mobile and rely on IP + rate limits. That
-  is a bypass any custom client can hit, on a public deployment.
-
-Only the bot-verification step is swapped. The chain stays fail-closed.
-
-### 1.3 CORS
-
-Not strictly required for native fetch (not subject to browser CORS), but needed
-for any web/PWA leg and for preflight on some Android HTTP stacks.
-
-```
-Access-Control-Allow-Origin: https://careerpilot.cc   # never *
-Access-Control-Allow-Headers: Authorization, Content-Type
-Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS
-Vary: Origin
+```json
+{ "email": "...", "password": "...", "integrityToken": "...", "deviceLabel": "Pixel 8" }
 ```
 
-The existing CSP in `next.config.ts` is hand-maintained and fails *silently* —
-consult `SYSTEM_WORKFLOW.md` §8 before editing.
+**Response 200**
+
+```json
+{ "accessToken": "...", "refreshToken": "...", "expiresIn": 900,
+  "refreshExpiresIn": 5184000, "user": { "id": "...", "email": "...", "name": "..." } }
+```
+
+**Failure** — `{ message, reason }` with a status of 401 (bad credentials),
+403 (email provider / network / bot check), 429 (rate limited, includes
+`Retry-After`), or 400 (malformed body).
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/auth/mobile/refresh` | `{ refreshToken }` → new token pair. One-time rotation. |
+| `GET  /api/auth/mobile/session` | Verifies a bearer token; 401 when it is no longer good. |
+| `POST /api/auth/mobile/revoke` | Sign out this device, or `{ all: true }` for every device. |
+
+**Token lifetimes:** access 15 minutes, refresh 60 days.
+
+**Security properties** (unit-tested, `npm run check:mobile-tokens`)
+
+- Access and refresh tokens are separated by JWT **audience**, so a stolen
+  15-minute access token cannot be traded for a 60-day one, and a refresh token
+  cannot be used as an API credential.
+- Signing secret is derived from `AUTH_SECRET` with a domain separator, so a
+  mobile token can never be mistaken for an Auth.js session token.
+- Refresh tokens are stored **hashed** (sha256); a database dump yields none.
+- Rotation is one-time, and **reuse is detected**: presenting an already-rotated
+  token revokes every session for that user and returns `reason: "reuse"`.
+
+> ⚠️ Rotation and reuse detection are **not yet covered by tests** — that logic
+> needs a database and `lib/mobileRefreshStore.ts` imports through the `@/`
+> alias, which Node's type stripping does not resolve. It is the largest
+> remaining unverified path on the server.
+
+### 1.2 Bot verification — implemented, needs credentials
+
+`lib/playIntegrity.ts` verifies a Play Integrity token: the app must be
+**PLAY_RECOGNIZED** (a re-signed APK is refused), the device must report
+**MEETS_DEVICE_INTEGRITY**, and both the app and request package names must
+match. The policy is unit-tested (`npm run check:play-integrity`).
+
+**This is fail-closed.** If Play Integrity is not configured, mobile sign-in is
+refused outright. The tempting shortcut — skip bot verification for mobile
+because a captcha cannot run there — would hand anyone with a custom HTTP client
+a captcha bypass on a public deployment.
+
+**Outstanding:** set these on the server's `.env.production` (never committed):
+
+```
+PLAY_INTEGRITY_SERVICE_ACCOUNT_EMAIL=
+PLAY_INTEGRITY_PRIVATE_KEY=          # PEM, \n escaped
+PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=
+PLAY_INTEGRITY_PACKAGE_NAME=         # optional, defaults to cc.careerpilot.app
+```
+
+Until then the app's sign-in shows the server's refusal message verbatim, which
+says the server has no mobile verification configured.
+
+### 1.3 CORS — implemented
+
+`lib/cors.ts` echoes the request `Origin` only when it is allowlisted. It is
+**not** in `next.config.ts` because `Access-Control-Allow-Origin` accepts
+exactly one origin or `*` — a comma-separated list is invalid and browsers
+reject it, and static headers cannot echo.
+
+`*` is deliberately not used: these endpoints are authenticated, and a wildcard
+lets any web page drive a request from a signed-in user's browser.
+
+Native fetch ignores CORS, so this exists for a web/PWA client and for preflight
+on some Android HTTP stacks — not because the Expo app requires it.
 
 ---
 

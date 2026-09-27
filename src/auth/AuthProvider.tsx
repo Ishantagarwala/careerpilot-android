@@ -19,7 +19,7 @@ interface AuthState {
   user: SessionUser | null;
   error: string | null;
   busy: boolean;
-  signIn(email: string, password: string, captchaToken?: string): Promise<SignInResult>;
+  signIn(email: string, password: string): Promise<SignInResult>;
   signOut(): Promise<void>;
   /** true once the first-run screens have been completed on this device */
   hasOnboarded: boolean;
@@ -59,10 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string, captchaToken?: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     setBusy(true);
     setError(null);
-    const result = await performSignIn(email, password, captchaToken);
+    const result = await performSignIn(email, password);
     if (result.ok) {
       const session = await restoreSession();
       setUser(session);

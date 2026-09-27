@@ -17,6 +17,7 @@ import {
   BrandTextButton,
 } from '@/components/brand/BrandControls';
 import { BrandWordmark } from '@/components/brand/BrandWordmark';
+import { integrityStatus } from '@/auth/playIntegrity';
 import { brandLight, space } from '@/theme/tokens';
 
 /**
@@ -104,11 +105,10 @@ export default function SignInScreen() {
         </View>
 
         <View style={styles.notice}>
-          <Text style={styles.noticeTitle}>Bot verification pending</Text>
+          <Text style={styles.noticeTitle}>Device check pending</Text>
           <Text style={styles.noticeBody}>
-            CareerPilot requires bot verification on sign-in. hCaptcha cannot run
-            in a native app, so signing in stays disabled until Play Integrity
-            attestation is wired up on the server.
+            {integrityStatus().reason ??
+              'CareerPilot verifies this device before signing in.'}
           </Text>
         </View>
 
