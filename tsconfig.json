@@ -6,6 +6,10 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
+    // Node's native type stripping (used by `npm test`) needs explicit .ts
+    // specifiers at runtime, which tsc only permits with this flag.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "paths": {
       "@/*": ["./src/*"]
     }

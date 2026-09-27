@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { CacheKeys, cached, freshness } from '@/offline/cache';
+import { computeProgress, milestoneKey } from './progress';
+
+// Screens import milestoneKey from this module; keep that path working while
+// the implementation lives in the testable ./progress module.
+export { milestoneKey };
 import {
-  computeProgress,
   getRecommendations,
   getRoadmap,
   updateProgress,
@@ -139,16 +143,6 @@ function patchMilestone(roadmap: Roadmap, milestoneId: string, completed: boolea
   };
 }
 
-/**
- * A milestone's stable id.
- *
- * The model gives each milestone a Mongo `_id`, but a roadmap generated before
- * that field existed may only have a title — fall back to the title so the
- * control still works rather than silently doing nothing.
- */
-export function milestoneKey(milestone: { _id?: string; title: string }): string {
-  return milestone._id ?? milestone.title;
-}
 
 function messageOf(err: unknown): string {
   if (err instanceof Error) {

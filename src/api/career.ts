@@ -140,39 +140,9 @@ export async function updateProgress(input: {
 /* Derived progress                                                           */
 /* -------------------------------------------------------------------------- */
 
-export interface RoadmapProgress {
-  completed: number;
-  total: number;
-  /** 0..1 */
-  ratio: number;
-  /** the first incomplete milestone, i.e. what to do next */
-  next: { milestone: Milestone; stage: RoadmapStage } | null;
-}
-
 /**
- * Progress is derived on the client.
- *
- * The model has no aggregate counter, and computing it from the document we
- * already hold avoids a second request. Milestones are the unit the mockup
- * shows ("5 of 13 milestones complete").
+ * Re-exported from `career/progress.ts`, where it lives so it can be unit-tested
+ * without importing the API client (and through it, expo-constants).
  */
-export function computeProgress(roadmap: Roadmap | null): RoadmapProgress {
-  if (!roadmap?.stages?.length) return { completed: 0, total: 0, ratio: 0, next: null };
-
-  let completed = 0;
-  let total = 0;
-  let next: RoadmapProgress['next'] = null;
-
-  for (const stage of roadmap.stages) {
-    for (const milestone of stage.milestones ?? []) {
-      total++;
-      if (milestone.completed) {
-        completed++;
-      } else if (!next) {
-        next = { milestone, stage };
-      }
-    }
-  }
-
-  return { completed, total, ratio: total ? completed / total : 0, next };
-}
+export { computeProgress, milestoneKey } from '../career/progress';
+export type { RoadmapProgress } from '../career/progress';

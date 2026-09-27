@@ -8,6 +8,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
     "lint": "expo lint",
     "mockups:render": "python3 design/build.py",
     "mockups:sheet": "magick montage design/png/{01,02,03,04,05,06,07,08,09,10}-*.png -tile 5x2 -geometry 592x1010+14+14 -background '#0d1005' design/png/00-contact-sheet.png"

@@ -1,5 +1,6 @@
 import { API_BASE_URL, NotAuthenticatedError, ApiError } from './client';
 import { getCredentialHeaders } from './credentials';
+import { parseJsonFrame, SseFrameParser } from './sse';
 
 /**
  * Chat + threads API for the AI Hub.
@@ -146,81 +147,64 @@ function describeHttpError(status: number, text: string): string {
 }
 
 /**
- * Parse an SSE byte stream.
+ * Consume the response stream.
  *
- * Frames are `data: {json}\n\n`. The reader is decoded with `{ stream: true }`
- * so a multi-byte character split across two network chunks is not mangled —
- * without it, non-ASCII replies (₹, emoji, Devanagari) corrupt at the seams.
+ * Defers the actual framing to `SseFrameParser`, which is unit-tested against
+ * chunk-boundary and malformed-input cases. Keeping a second copy of that logic
+ * here would mean the tests proved nothing about the shipped path.
  */
 async function consumeSse(
   body: ReadableStream<Uint8Array>,
   callbacks: StreamCallbacks,
 ): Promise<void> {
   const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  const parser = new SseFrameParser();
+
+  const dispatch = (frames: ReturnType<SseFrameParser['push']>) => {
+    for (const frame of frames) {
+      const event = parseJsonFrame<ChatEvent>(frame);
+      if (!event) continue; // a malformed frame must not kill the stream
+      emit(event, callbacks);
+    }
+  };
 
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      // Frames are separated by a blank line; keep the trailing partial frame.
-      let boundary = buffer.indexOf('\n\n');
-      while (boundary !== -1) {
-        const frame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        dispatchFrame(frame, callbacks);
-        boundary = buffer.indexOf('\n\n');
-      }
+      dispatch(parser.push(value));
     }
-    // Flush anything left if the server closed without a trailing blank line.
-    buffer += decoder.decode();
-    if (buffer.trim()) dispatchFrame(buffer, callbacks);
+    // The server may close without a trailing blank line.
+    dispatch(parser.flush());
   } finally {
     reader.releaseLock();
   }
 }
 
-function dispatchFrame(frame: string, callbacks: StreamCallbacks): void {
-  for (const line of frame.split('\n')) {
-    if (!line.startsWith('data:')) continue;
-    const raw = line.slice(5).trim();
-    if (!raw || raw === '[DONE]') continue;
-
-    let event: ChatEvent;
-    try {
-      event = JSON.parse(raw) as ChatEvent;
-    } catch {
-      // A malformed frame must not kill an otherwise-good stream.
-      continue;
-    }
-
-    switch (event.type) {
-      case 'meta':
-        callbacks.onMeta?.(event.threadId, event.documentsUsed);
-        break;
-      case 'reasoning':
-        callbacks.onReasoning?.(event.content);
-        break;
-      case 'token':
-        callbacks.onToken?.(event.content);
-        break;
-      case 'title':
-        callbacks.onTitle?.(event.title);
-        break;
-      case 'done':
-        callbacks.onDone?.({
-          threadId: event.threadId,
-          reply: event.reply,
-          reasoning: event.reasoning,
-        });
-        break;
-      case 'error':
-        callbacks.onError?.(event.message);
-        break;
-    }
+function emit(event: ChatEvent, callbacks: StreamCallbacks): void {
+  switch (event.type) {
+    case 'meta':
+      callbacks.onMeta?.(event.threadId, event.documentsUsed);
+      break;
+    case 'reasoning':
+      callbacks.onReasoning?.(event.content);
+      break;
+    case 'token':
+      callbacks.onToken?.(event.content);
+      break;
+    case 'title':
+      callbacks.onTitle?.(event.title);
+      break;
+    case 'done':
+      callbacks.onDone?.({
+        threadId: event.threadId,
+        reply: event.reply,
+        reasoning: event.reasoning,
+      });
+      break;
+    case 'error':
+      callbacks.onError?.(event.message);
+      break;
   }
 }
 
