@@ -16,6 +16,14 @@ import { Tag } from '@/components/Tag';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
 import {
+  difficultyLabel,
+  listProjectIdeas,
+  listTeamPosts,
+  seatsRemaining,
+  type ProjectIdea,
+  type TeamPost,
+} from '@/api/projects';
+import {
   APPLICATION_LABELS,
   analyzeAts,
   listApplications,
@@ -46,17 +54,22 @@ export default function BuildScreen() {
   const [resumes, setResumes] = useState<Resume[] | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [ideas, setIdeas] = useState<ProjectIdea[] | null>(null);
+  const [teamPosts, setTeamPosts] = useState<TeamPost[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [scoring, setScoring] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
-    const [resumeResult, appsResult, jobsResult] = await Promise.allSettled([
-      listResumes(),
-      listApplications(),
-      searchJobs(),
-    ]);
+    const [resumeResult, appsResult, jobsResult, ideasResult, teamsResult] =
+      await Promise.allSettled([
+        listResumes(),
+        listApplications(),
+        searchJobs(),
+        listProjectIdeas(),
+        listTeamPosts(),
+      ]);
 
     if (resumeResult.status === 'fulfilled') setResumes(resumeResult.value);
     else setResumes([]);
@@ -65,6 +78,11 @@ export default function BuildScreen() {
 
     if (jobsResult.status === 'fulfilled') setJobs(jobsResult.value.jobs);
     else setJobs([]);
+
+    if (ideasResult.status === 'fulfilled') setIdeas(ideasResult.value);
+    else setIdeas([]);
+
+    if (teamsResult.status === 'fulfilled') setTeamPosts(teamsResult.value);
 
     // Only report a failure when nothing loaded — a partial screen beats an
     // error banner covering content that is actually there.
@@ -130,7 +148,9 @@ export default function BuildScreen() {
           <ResumePanel resumes={resumes} scoring={scoring} onScore={scoreResume} />
         ) : null}
         {segment === 'Jobs' ? <JobsPanel jobs={jobs} applications={applications} /> : null}
-        {segment === 'Projects' ? <ProjectsPanel /> : null}
+        {segment === 'Projects' ? (
+          <ProjectsPanel ideas={ideas} teamPosts={teamPosts} />
+        ) : null}
       </ScrollView>
     </Screen>
   );
@@ -479,16 +499,123 @@ function JobsPanel({ jobs, applications }: { jobs: Job[] | null; applications: A
   );
 }
 
-function ProjectsPanel() {
+function ProjectsPanel({
+  ideas,
+  teamPosts,
+}: {
+  ideas: ProjectIdea[] | null;
+  teamPosts: TeamPost[];
+}) {
   const hub = useTheme('hub');
+
+  if (ideas === null) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={hub.strong} />
+      </View>
+    );
+  }
+
+  const openPosts = teamPosts.filter((p) => p.status === 'open');
+
   return (
-    <View style={styles.center}>
-      <Text style={[styles.emptyTitle, { color: hub.text }]}>Projects — not in the app yet</Text>
-      <Text style={[styles.emptyBody, { color: hub.muted }]}>
-        Project ideas and team posts come from projects and projects/teams. This
-        panel is a placeholder until those are wired.
-      </Text>
-    </View>
+    <>
+      {openPosts.length > 0 ? (
+        <>
+          <SectionLabel>Looking for teammates</SectionLabel>
+          <View style={styles.stack}>
+            {openPosts.slice(0, 3).map((post) => {
+              const seats = seatsRemaining(post);
+              return (
+                <View
+                  key={post._id}
+                  style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}
+                >
+                  <View style={styles.row}>
+                    <View style={styles.flexChild}>
+                      <Text style={[styles.jobTitle, { color: hub.text }]} numberOfLines={2}>
+                        {post.title}
+                      </Text>
+                      <Text style={[styles.cardMeta, { color: hub.muted }]}>
+                        {post.currentMembers} of {post.teamSize} members
+                      </Text>
+                    </View>
+                    {/* Colour is not the only signal: the seat count is stated. */}
+                    <Tag tone={seats > 0 ? 'lime' : 'outline'}>
+                      {seats > 0 ? `${seats} spot${seats === 1 ? '' : 's'}` : 'Full'}
+                    </Tag>
+                  </View>
+                  <Text style={[styles.bodyText, { color: hub.muted, marginTop: 10 }]}>
+                    {post.description}
+                  </Text>
+                  {post.lookingFor?.length ? (
+                    <View style={styles.tagRow}>
+                      {post.lookingFor.slice(0, 4).map((role) => (
+                        <Tag key={role}>{role}</Tag>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
+
+      <SectionLabel>Project ideas</SectionLabel>
+
+      {ideas.length === 0 ? (
+        <View style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}>
+          <Text style={[styles.bodyText, { color: hub.muted }]}>
+            No project ideas yet. They are generated from your pinned career
+            direction — set one on the Career tab first.
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.stack}>
+        {ideas.slice(0, 6).map((idea, i) => (
+          <View
+            key={idea._id ?? `${idea.title}-${i}`}
+            style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}
+          >
+            <View style={styles.row}>
+              <View style={styles.flexChild}>
+                <Text style={[styles.jobTitle, { color: hub.text }]} numberOfLines={2}>
+                  {idea.title}
+                </Text>
+                <Text style={[styles.cardMeta, { color: hub.muted }]}>
+                  {difficultyLabel(idea.difficulty)} · {idea.estimatedTime}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={[styles.bodyText, { color: hub.muted, marginTop: 10 }]}>
+              {idea.description}
+            </Text>
+
+            {idea.technologies?.length ? (
+              <View style={styles.tagRow}>
+                {idea.technologies.slice(0, 5).map((tech) => (
+                  <Tag key={tech}>{tech}</Tag>
+                ))}
+              </View>
+            ) : null}
+
+            {idea.features?.length ? (
+              <View style={{ marginTop: 12 }}>
+                {idea.features.slice(0, 3).map((feature) => (
+                  <Text key={feature} style={[styles.bulletLine, { color: hub.muted }]}>
+                    {'·  '}
+                    {feature}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    </>
   );
 }
 
