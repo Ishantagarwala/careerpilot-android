@@ -1,22 +1,40 @@
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { AppBar, Screen, SectionLabel } from '@/components/Screen';
-import { PlusGlyph } from '@/components/glyphs/TabGlyphs';
-import { IconButton } from '@/components/hub/HubControls';
 import { Tag } from '@/components/Tag';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
+import {
+  APPLICATION_LABELS,
+  analyzeAts,
+  listApplications,
+  listResumes,
+  missingSkills,
+  searchJobs,
+  type Application,
+  type Job,
+  type Resume,
+} from '@/api/build';
 
 /**
  * Build — Resume, Projects, Jobs. Language B (hub).
  *
- * Matches design/png/06-build-resume.png and 07-build-jobs.png.
+ * Matches design/png/06-build-resume.png and 07-build-jobs.png, on live data.
  *
- * The ATS score is the screen's single focal number: a progress ring with the
- * value in Anybody 800 and a mono uppercase caption. Ranked fixes sit under it
- * because a score without a next action is just anxiety.
+ * The ATS score is the Resume panel's single focal number. Scoring runs an LLM
+ * call server-side, so it is triggered only by an explicit tap — never on
+ * mount — and the control says what it will do before you press it.
  */
 type Segment = 'Resume' | 'Projects' | 'Jobs';
 const SEGMENTS: Segment[] = ['Resume', 'Projects', 'Jobs'];
@@ -25,32 +43,93 @@ export default function BuildScreen() {
   const hub = useTheme('hub');
   const [segment, setSegment] = useState<Segment>('Resume');
 
+  const [resumes, setResumes] = useState<Resume[] | null>(null);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [scoring, setScoring] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    const [resumeResult, appsResult, jobsResult] = await Promise.allSettled([
+      listResumes(),
+      listApplications(),
+      searchJobs(),
+    ]);
+
+    if (resumeResult.status === 'fulfilled') setResumes(resumeResult.value);
+    else setResumes([]);
+
+    if (appsResult.status === 'fulfilled') setApplications(appsResult.value);
+
+    if (jobsResult.status === 'fulfilled') setJobs(jobsResult.value.jobs);
+    else setJobs([]);
+
+    // Only report a failure when nothing loaded — a partial screen beats an
+    // error banner covering content that is actually there.
+    if (
+      resumeResult.status === 'rejected' &&
+      appsResult.status === 'rejected' &&
+      jobsResult.status === 'rejected'
+    ) {
+      setError(messageOf(resumeResult.reason));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  /** Score a resume. Slow (LLM-backed) and therefore explicit. */
+  const scoreResume = useCallback(async (resume: Resume) => {
+    setScoring(resume._id);
+    setError(null);
+    try {
+      const result = await analyzeAts({ resumeId: resume._id });
+      setResumes(
+        (prev) =>
+          prev?.map((r) =>
+            r._id === resume._id ? { ...r, atsAnalysis: { ...r.atsAnalysis, ...result } } : r,
+          ) ?? null,
+      );
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setScoring(null);
+    }
+  }, []);
+
   return (
     <Screen padded={false}>
       <View style={styles.gutter}>
-        <AppBar
-          title="Build"
-          trailing={
-            <IconButton bordered label="Add">
-              <PlusGlyph color={hub.text} />
-            </IconButton>
-          }
-        />
+        <AppBar title="Build" />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollBody}>
-        <Segmented
-          options={SEGMENTS}
-          value={segment}
-          onChange={setSegment}
-          track={hub.soft}
-          surface={hub.surface}
-          text={hub.text}
-          muted={hub.muted}
-        />
+      <ScrollView
+        contentContainerStyle={styles.scrollBody}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={hub.strong} />
+        }
+      >
+        <Segmented value={segment} onChange={setSegment} />
 
-        {segment === 'Resume' ? <ResumePanel /> : null}
-        {segment === 'Jobs' ? <JobsPanel /> : null}
+        {error ? (
+          <View style={[styles.errorBox, { borderColor: hub.danger }]}>
+            <Text style={[styles.errorText, { color: hub.danger }]}>{error}</Text>
+          </View>
+        ) : null}
+
+        {segment === 'Resume' ? (
+          <ResumePanel resumes={resumes} scoring={scoring} onScore={scoreResume} />
+        ) : null}
+        {segment === 'Jobs' ? <JobsPanel jobs={jobs} applications={applications} /> : null}
         {segment === 'Projects' ? <ProjectsPanel /> : null}
       </ScrollView>
     </Screen>
@@ -59,168 +138,339 @@ export default function BuildScreen() {
 
 /* -------------------------------------------------------------------------- */
 
-function Segmented<T extends string>({
-  options,
-  value,
-  onChange,
-  track,
-  surface,
-  text,
-  muted,
-}: {
-  options: T[];
-  value: T;
-  onChange: (next: T) => void;
-  track: string;
-  surface: string;
-  text: string;
-  muted: string;
-}) {
+function Segmented({ value, onChange }: { value: Segment; onChange: (next: Segment) => void }) {
+  const hub = useTheme('hub');
   return (
-    <View style={[styles.segmented, { backgroundColor: track }]} accessibilityRole="tablist">
-      {options.map((opt) => {
+    <View style={[styles.segmented, { backgroundColor: hub.soft }]} accessibilityRole="tablist">
+      {SEGMENTS.map((opt) => {
         const active = opt === value;
         return (
-          <Text
+          <Pressable
             key={opt}
             onPress={() => onChange(opt)}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
-            suppressHighlighting
-            style={[
-              styles.segment,
-              {
-                backgroundColor: active ? surface : 'transparent',
-                color: active ? text : muted,
-                fontFamily: active ? fontFamily.monoBold : fontFamily.monoMedium,
-              },
-            ]}
+            style={[styles.segment, active ? { backgroundColor: hub.surface } : null]}
           >
-            {opt}
-          </Text>
+            <Text
+              style={[
+                styles.segmentText,
+                {
+                  color: active ? hub.text : hub.muted,
+                  fontFamily: active ? fontFamily.monoBold : fontFamily.monoMedium,
+                },
+              ]}
+            >
+              {opt}
+            </Text>
+          </Pressable>
         );
       })}
     </View>
   );
 }
 
-function ResumePanel() {
+function ResumePanel({
+  resumes,
+  scoring,
+  onScore,
+}: {
+  resumes: Resume[] | null;
+  scoring: string | null;
+  onScore: (resume: Resume) => void;
+}) {
   const hub = useTheme('hub');
-  const score = 71;
+
+  if (resumes === null) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={hub.strong} />
+      </View>
+    );
+  }
+
+  if (resumes.length === 0) {
+    return (
+      <View style={styles.center}>
+        <Text style={[styles.emptyTitle, { color: hub.text }]}>No resumes yet</Text>
+        <Text style={[styles.emptyBody, { color: hub.muted }]}>
+          Build a resume on the web, then score it here. The builder itself is not
+          in the app yet.
+        </Text>
+      </View>
+    );
+  }
+
+  // The active resume, else the most recently updated one.
+  const primary = resumes.find((r) => r.isActive) ?? resumes[0]!;
+  const ats = primary.atsAnalysis;
 
   return (
     <>
-      <View style={[styles.card, styles.row, { borderColor: hub.line, backgroundColor: hub.surface }]}>
-        <ScoreRing value={score} label="ATS score" track={hub.soft} fill={hub.primary} text={hub.text} muted={hub.muted} />
-        <View style={styles.flexChild}>
-          <Text style={[styles.cardTitle, { color: hub.text }]}>Fullstack_Resume_v4</Text>
-          <Text style={[styles.cardMeta, { color: hub.muted }]}>Updated 2 days ago · 1 page</Text>
-          <View style={styles.tagRow}>
-            <Tag>3 keywords missing</Tag>
-            <Tag>1 weak bullet</Tag>
+      <View
+        style={[styles.card, styles.row, { borderColor: hub.line, backgroundColor: hub.surface }]}
+      >
+        {ats?.score != null ? (
+          <ScoreRing
+            value={ats.score}
+            label={ats.tier ?? 'ATS score'}
+            track={hub.soft}
+            fill={hub.primary}
+            text={hub.text}
+            muted={hub.muted}
+          />
+        ) : (
+          <View style={[styles.noScore, { backgroundColor: hub.soft }]}>
+            <Text style={[styles.noScoreText, { color: hub.muted }]}>—</Text>
           </View>
+        )}
+        <View style={styles.flexChild}>
+          <Text style={[styles.cardTitle, { color: hub.text }]} numberOfLines={2}>
+            {primary.title}
+          </Text>
+          <Text style={[styles.cardMeta, { color: hub.muted }]}>
+            {ats?.analyzedAt ? `Scored ${relativeTime(ats.analyzedAt)}` : 'Not scored yet'}
+          </Text>
+          {ats?.tier ? (
+            <View style={styles.tagRow}>
+              <Tag tone={ats.score >= 70 ? 'lime' : 'outline'}>{ats.tier}</Tag>
+            </View>
+          ) : null}
+          <Pressable
+            onPress={() => onScore(primary)}
+            disabled={scoring !== null}
+            accessibilityRole="button"
+            accessibilityLabel={ats ? 'Re-score resume' : 'Score resume with ATS'}
+            accessibilityState={{ busy: scoring === primary._id, disabled: scoring !== null }}
+            style={[
+              styles.scoreButton,
+              { borderColor: hub.strong },
+              scoring !== null ? styles.dim : null,
+            ]}
+          >
+            {scoring === primary._id ? (
+              <ActivityIndicator size="small" color={hub.text} />
+            ) : (
+              <Text style={[styles.scoreButtonText, { color: hub.text }]}>
+                {ats ? 'Re-score' : 'Score with ATS'}
+              </Text>
+            )}
+          </Pressable>
         </View>
       </View>
 
-      <SectionLabel>Fix these to score higher</SectionLabel>
-      <View style={styles.stack}>
-        <FixRow
-          priority="HIGH"
-          tone="danger"
-          title="Add “Docker” and “CI/CD”."
-          detail="Present in 78% of the backend roles you match."
-        />
-        <FixRow
-          priority="MED"
-          tone="outline"
-          title="Quantify the project bullet."
-          detail="“Built an API” → add users or request volume."
-        />
-      </View>
+      {ats?.summary ? (
+        <>
+          <SectionLabel>Recruiter summary</SectionLabel>
+          <View style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}>
+            <Text style={[styles.bodyText, { color: hub.text }]}>{ats.summary}</Text>
+          </View>
+        </>
+      ) : null}
 
-      <SectionLabel>Target a job description</SectionLabel>
-      <View style={[styles.card, styles.row, { borderColor: hub.line, backgroundColor: hub.surface }]}>
-        <Text style={[styles.pasteHint, { color: hub.muted }]}>
-          Paste a JD to match against…
-        </Text>
-        <Tag tone="dark">Match</Tag>
-      </View>
+      {ats?.suggestions?.length ? (
+        <>
+          <SectionLabel>Fix these to score higher</SectionLabel>
+          <View style={styles.stack}>
+            {ats.suggestions.slice(0, 4).map((s, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.card,
+                  styles.row,
+                  styles.alignTop,
+                  { borderColor: hub.line, backgroundColor: hub.surface },
+                ]}
+              >
+                <Tag tone={i === 0 ? 'danger' : 'outline'}>
+                  {i === 0 ? 'HIGH' : i === 1 ? 'MED' : 'LOW'}
+                </Tag>
+                <Text style={[styles.bodyText, { color: hub.text, flex: 1 }]}>{s}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : null}
 
-      <Text style={[styles.footnote, { color: hub.muted }]}>
-        Scores come from resume/ats-analyze. Not yet wired to the API.
-      </Text>
+      {ats?.strengths?.length ? (
+        <>
+          <SectionLabel>What is working</SectionLabel>
+          <View style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}>
+            {ats.strengths.slice(0, 4).map((s, i) => (
+              <Text key={i} style={[styles.bulletLine, { color: hub.text }]}>
+                {'·  '}
+                {s}
+              </Text>
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      {resumes.length > 1 ? (
+        <>
+          <SectionLabel>Other resumes</SectionLabel>
+          {resumes
+            .filter((r) => r._id !== primary._id)
+            .map((r) => (
+              <View
+                key={r._id}
+                style={[
+                  styles.card,
+                  styles.row,
+                  {
+                    borderColor: hub.line,
+                    backgroundColor: hub.surface,
+                    marginBottom: space.s2,
+                  },
+                ]}
+              >
+                <View style={styles.flexChild}>
+                  <Text style={[styles.rowTitle, { color: hub.text }]} numberOfLines={1}>
+                    {r.title}
+                  </Text>
+                  <Text style={[styles.cardMeta, { color: hub.muted }]}>
+                    {r.atsAnalysis?.score != null ? `Score ${r.atsAnalysis.score}` : 'Not scored'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+        </>
+      ) : null}
     </>
   );
 }
 
-function FixRow({
-  priority,
-  tone,
-  title,
-  detail,
-}: {
-  priority: string;
-  tone: 'danger' | 'outline';
-  title: string;
-  detail: string;
-}) {
+function JobsPanel({ jobs, applications }: { jobs: Job[] | null; applications: Application[] }) {
   const hub = useTheme('hub');
-  return (
-    <View style={[styles.card, styles.row, styles.alignTop, { borderColor: hub.line, backgroundColor: hub.surface }]}>
-      <Tag tone={tone}>{priority}</Tag>
-      <View style={styles.flexChild}>
-        <Text style={[styles.fixTitle, { color: hub.text }]}>{title}</Text>
-        <Text style={[styles.fixDetail, { color: hub.muted }]}>{detail}</Text>
-      </View>
-    </View>
-  );
-}
 
-function JobsPanel() {
-  const hub = useTheme('hub');
+  const counts = applications.reduce<Record<string, number>>((acc, app) => {
+    acc[app.status] = (acc[app.status] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  if (jobs === null) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={hub.strong} />
+      </View>
+    );
+  }
+
   return (
     <>
-      <View style={styles.chipRow}>
-        <Tag tone="dark">Applied 7</Tag>
-        <Tag>Interview 2</Tag>
-        <Tag>Offer 1</Tag>
-      </View>
+      {applications.length > 0 ? (
+        <View style={styles.chipRow}>
+          {(['applied', 'interview', 'offer'] as const)
+            .filter((s) => counts[s])
+            .map((s) => (
+              <Tag key={s} tone={s === 'offer' ? 'lime' : 'outline'}>
+                {APPLICATION_LABELS[s]} {counts[s]}
+              </Tag>
+            ))}
+        </View>
+      ) : null}
 
       <SectionLabel>Fresh matches</SectionLabel>
+
+      {jobs.length === 0 ? (
+        <View style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}>
+          <Text style={[styles.bodyText, { color: hub.muted }]}>
+            No jobs returned. Listings are aggregated server-side from several
+            providers and can be slow or rate-limited — pull to refresh.
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.stack}>
-        {[
-          { co: 'Z', title: 'Backend Engineer — Node.js', meta: 'Zoho · Chennai · ₹6–9 LPA', match: '92%', missing: 'Missing: Docker' },
-          { co: 'F', title: 'Full Stack Developer', meta: 'Freshworks · Remote · ₹7–11 LPA', match: '81%', missing: null },
-        ].map((job) => (
-          <View
-            key={job.title}
-            style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}
-          >
-            <View style={styles.row}>
-              <View style={[styles.avatar, { backgroundColor: hub.soft }]}>
-                <Text style={[styles.avatarText, { color: hub.text }]}>{job.co}</Text>
+        {jobs.slice(0, 8).map((job, i) => {
+          const gap = missingSkills(job);
+          return (
+            <View
+              key={job._id ?? `${job.title}-${i}`}
+              style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}
+            >
+              <View style={styles.row}>
+                <View style={[styles.avatar, { backgroundColor: hub.soft }]}>
+                  <Text style={[styles.avatarText, { color: hub.text }]}>
+                    {job.company.trim()[0]?.toUpperCase() ?? '?'}
+                  </Text>
+                </View>
+                <View style={styles.flexChild}>
+                  <Text style={[styles.jobTitle, { color: hub.text }]} numberOfLines={2}>
+                    {job.title}
+                  </Text>
+                  <Text style={[styles.cardMeta, { color: hub.muted }]} numberOfLines={1}>
+                    {[job.company, job.location, job.remote ? 'Remote' : null]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+                {job.matchScore != null ? (
+                  <Tag tone={job.matchScore >= 85 ? 'lime' : 'outline'}>{job.matchScore}%</Tag>
+                ) : null}
               </View>
-              <View style={styles.flexChild}>
-                <Text style={[styles.jobTitle, { color: hub.text }]}>{job.title}</Text>
-                <Text style={[styles.cardMeta, { color: hub.muted }]}>{job.meta}</Text>
-              </View>
-              <Tag tone={job.match === '92%' ? 'lime' : 'outline'}>{job.match}</Tag>
+
+              {gap.length ? (
+                <View style={styles.tagRow}>
+                  {(job.matchedSkills ?? []).slice(0, 2).map((s) => (
+                    <Tag key={s}>{s}</Tag>
+                  ))}
+                  <Tag tone="outline">Missing: {gap.join(', ')}</Tag>
+                </View>
+              ) : null}
+
+              {job.applyUrl ? (
+                <Pressable
+                  onPress={() => Linking.openURL(job.applyUrl!).catch(() => undefined)}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Open the posting for ${job.title}`}
+                  style={[styles.applyButton, { backgroundColor: hub.strong }]}
+                >
+                  <Text style={[styles.applyText, { color: hub.bg }]}>Open posting</Text>
+                </Pressable>
+              ) : null}
             </View>
-            {job.missing ? (
-              <View style={styles.tagRow}>
-                <Tag>Node</Tag>
-                <Tag>MongoDB</Tag>
-                <Tag tone="outline">{job.missing}</Tag>
-              </View>
-            ) : null}
-          </View>
-        ))}
+          );
+        })}
       </View>
 
-      <Text style={[styles.footnote, { color: hub.muted }]}>
-        Jobs aggregate from multiple providers (jobs, jobs/applications). Not yet
-        wired to the API.
-      </Text>
+      {applications.length > 0 ? (
+        <>
+          <SectionLabel>Your applications</SectionLabel>
+          <View
+            style={[
+              styles.card,
+              { borderColor: hub.line, backgroundColor: hub.surface, paddingVertical: 0 },
+            ]}
+          >
+            {applications.slice(0, 6).map((app, i, all) => (
+              <View
+                key={app._id}
+                style={[
+                  styles.appRow,
+                  i < all.length - 1
+                    ? { borderBottomWidth: 1.5, borderBottomColor: hub.line }
+                    : null,
+                ]}
+              >
+                <View style={styles.flexChild}>
+                  <Text style={[styles.rowTitle, { color: hub.text }]} numberOfLines={1}>
+                    {app.customJob?.title ?? 'Application'}
+                  </Text>
+                  {app.customJob?.company ? (
+                    <Text style={[styles.cardMeta, { color: hub.muted }]}>
+                      {app.customJob.company}
+                    </Text>
+                  ) : null}
+                </View>
+                <Tag tone={app.status === 'offer' ? 'lime' : 'outline'}>
+                  {APPLICATION_LABELS[app.status]}
+                </Tag>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : null}
     </>
   );
 }
@@ -228,24 +478,13 @@ function JobsPanel() {
 function ProjectsPanel() {
   const hub = useTheme('hub');
   return (
-    <>
-      <SectionLabel>Team posts</SectionLabel>
-      <View style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}>
-        <Text style={[styles.fixTitle, { color: hub.text }]}>
-          Looking for a frontend partner
-        </Text>
-        <Text style={[styles.fixDetail, { color: hub.muted }]}>
-          React + Tailwind, 2 evenings a week, building a campus marketplace.
-        </Text>
-        <View style={styles.tagRow}>
-          <Tag>React</Tag>
-          <Tag>2 spots</Tag>
-        </View>
-      </View>
-      <Text style={[styles.footnote, { color: hub.muted }]}>
-        Sourced from projects and projects/teams. Not yet wired to the API.
+    <View style={styles.center}>
+      <Text style={[styles.emptyTitle, { color: hub.text }]}>Projects — not in the app yet</Text>
+      <Text style={[styles.emptyBody, { color: hub.muted }]}>
+        Project ideas and team posts come from projects and projects/teams. This
+        panel is a placeholder until those are wired.
       </Text>
-    </>
+    </View>
   );
 }
 
@@ -271,14 +510,15 @@ function ScoreRing({
   const stroke = 12;
   const r = (size - stroke) / 2 - 3;
   const c = 2 * Math.PI * r;
-  const clamped = Math.max(0, Math.min(100, value));
+  // The rubric clamps to 0-120, so the ring must not assume 0-100.
+  const pct = Math.max(0, Math.min(100, value));
 
   return (
     <View
       style={{ width: size, height: size }}
       accessibilityRole="progressbar"
-      accessibilityLabel={`${label}: ${clamped} out of 100`}
-      accessibilityValue={{ min: 0, max: 100, now: clamped }}
+      accessibilityLabel={`${label}: ${value}`}
+      accessibilityValue={{ min: 0, max: 120, now: value }}
     >
       <Svg width={size} height={size}>
         <Circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
@@ -291,16 +531,37 @@ function ScoreRing({
           fill="none"
           strokeLinecap="round"
           strokeDasharray={c}
-          strokeDashoffset={c * (1 - clamped / 100)}
+          strokeDashoffset={c * (1 - pct / 100)}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </Svg>
       <View style={styles.ringLabel}>
-        <Text style={[styles.ringValue, { color: text }]}>{clamped}</Text>
-        <Text style={[styles.ringCaption, { color: muted }]}>{label}</Text>
+        <Text style={[styles.ringValue, { color: text }]}>{value}</Text>
+        <Text style={[styles.ringCaption, { color: muted }]} numberOfLines={1}>
+          {label}
+        </Text>
       </View>
     </View>
   );
+}
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 'recently';
+  const days = Math.floor((Date.now() - then) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function messageOf(err: unknown): string {
+  if (err instanceof Error) {
+    return /network|fetch|timeout/i.test(err.message)
+      ? 'Could not reach CareerPilot. Check your connection.'
+      : err.message;
+  }
+  return 'Something went wrong.';
 }
 
 const styles = StyleSheet.create({
@@ -309,21 +570,10 @@ const styles = StyleSheet.create({
   scrollBody: { paddingHorizontal: space.s4, paddingBottom: space.s8 },
 
   segmented: { flexDirection: 'row', gap: 3, borderRadius: 11, padding: 3 },
-  segment: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 11.5,
-    letterSpacing: 0.2,
-    paddingVertical: 9,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
+  segment: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 8 },
+  segmentText: { fontSize: 11.5, letterSpacing: 0.2 },
 
-  card: {
-    borderWidth: 1.5,
-    borderRadius: radius.card,
-    padding: space.s4,
-  },
+  card: { borderWidth: 1.5, borderRadius: radius.card, padding: space.s4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.s3 },
   alignTop: { alignItems: 'flex-start' },
   stack: { gap: space.s2 },
@@ -332,7 +582,19 @@ const styles = StyleSheet.create({
   cardTitle: { fontFamily: fontFamily.heading, fontSize: 17, letterSpacing: -0.2 },
   cardMeta: { fontFamily: fontFamily.sans, fontSize: 13, marginTop: 3 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  bodyText: { fontFamily: fontFamily.sans, fontSize: 14, lineHeight: 21 },
+  bulletLine: { fontFamily: fontFamily.sans, fontSize: 13.5, lineHeight: 21, marginBottom: 4 },
+  rowTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 14.5 },
+  jobTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 15, letterSpacing: -0.1 },
 
+  noScore: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noScoreText: { fontFamily: fontFamily.headingExtraBold, fontSize: 34 },
   ringLabel: {
     position: 'absolute',
     top: 0,
@@ -341,28 +603,55 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   ringValue: { fontFamily: fontFamily.headingExtraBold, fontSize: 40, letterSpacing: -1.6 },
   ringCaption: {
     fontFamily: fontFamily.monoMedium,
     fontSize: 10,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
     marginTop: 5,
   },
 
-  fixTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 14.5, lineHeight: 21 },
-  fixDetail: { fontFamily: fontFamily.sans, fontSize: 13.5, lineHeight: 20, marginTop: 3 },
-  pasteHint: { fontFamily: fontFamily.sans, fontSize: 14, flex: 1 },
+  scoreButton: {
+    marginTop: 14,
+    height: 42,
+    borderWidth: 1.5,
+    borderRadius: radius.chip,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreButtonText: { fontFamily: fontFamily.sansSemiBold, fontSize: 14 },
+  dim: { opacity: 0.5 },
 
   avatar: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontFamily: fontFamily.headingExtraBold, fontSize: 16 },
-  jobTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 15, letterSpacing: -0.1 },
-
-  footnote: {
-    fontFamily: fontFamily.sans,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: space.s6,
+  applyButton: {
+    marginTop: 14,
+    height: 40,
+    borderRadius: radius.chip,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  applyText: { fontFamily: fontFamily.sansSemiBold, fontSize: 14 },
+
+  appRow: { flexDirection: 'row', alignItems: 'center', gap: space.s3, paddingVertical: 13 },
+
+  center: { alignItems: 'center', paddingVertical: space.s8, gap: 8 },
+  emptyTitle: { fontFamily: fontFamily.heading, fontSize: 17, textAlign: 'center' },
+  emptyBody: {
+    fontFamily: fontFamily.sans,
+    fontSize: 13.5,
+    lineHeight: 20,
+    textAlign: 'center',
+    maxWidth: 310,
+  },
+  errorBox: {
+    borderWidth: 1.5,
+    borderRadius: radius.chip,
+    padding: space.s3,
+    marginTop: space.s3,
+  },
+  errorText: { fontFamily: fontFamily.sans, fontSize: 13.5, lineHeight: 19 },
 });
