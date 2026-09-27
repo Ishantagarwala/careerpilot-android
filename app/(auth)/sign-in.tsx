@@ -50,6 +50,7 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
+  const [localError, setLocalError] = useState<string | null>(null);
   const [capability, setCapability] = useState<BiometricCapability | null>(null);
   const [biometricReady, setBiometricReady] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
@@ -71,7 +72,21 @@ export default function SignInScreen() {
   const trimmedEmail = email.trim();
   const trimmedPassword = password.trim();
 
-  const canSubmit = trimmedEmail.length > 0 && trimmedPassword.length > 0 && !busy;
+  /*
+   * The button is NOT gated on completeness any more.
+   *
+   * It used to be `disabled` until both fields had content, which meant tapping
+   * it did nothing at all — the only signal was a 50% opacity change, which is
+   * not a signal. Users read that as a broken app, and they were right to.
+   *
+   * Now it always submits and an incomplete form says exactly which field is
+   * missing. A control that explains itself beats one that refuses silently.
+   */
+  function missingField(): string | null {
+    if (!trimmedEmail) return 'Enter your email address.';
+    if (!trimmedPassword) return 'Enter your password.';
+    return null;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -87,7 +102,13 @@ export default function SignInScreen() {
   }, []);
 
   async function onSubmit() {
-    if (!canSubmit) return;
+    if (busy) return;
+    const missing = missingField();
+    if (missing) {
+      setLocalError(missing);
+      return;
+    }
+    setLocalError(null);
     await signIn(trimmedEmail, trimmedPassword);
   }
 
@@ -126,16 +147,27 @@ export default function SignInScreen() {
 
   /** Remember the credentials once a sign-in has actually succeeded. */
   const onRemember = useCallback(async () => {
-    if (!canSubmit) return;
+    if (biometricBusy) return;
+    const missing = !trimmedEmail
+      ? 'Enter your email address to save this sign-in.'
+      : !trimmedPassword
+        ? 'Enter your password to save this sign-in.'
+        : null;
+    if (missing) {
+      setLocalError(missing);
+      return;
+    }
     setBiometricBusy(true);
     setBiometricNote(null);
-    const result = await signIn(email.trim(), password);
+    const result = await signIn(trimmedEmail, trimmedPassword);
     if (result.ok) {
-      await enableBiometric(email.trim(), password);
+      // Store the trimmed values, so a remembered sign-in cannot fail later on
+      // whitespace the user never intended to type.
+      await enableBiometric(trimmedEmail, trimmedPassword);
       setBiometricReady(true);
     }
     setBiometricBusy(false);
-  }, [canSubmit, email, password, signIn]);
+  }, [biometricBusy, trimmedEmail, trimmedPassword, signIn]);
 
   return (
     <KeyboardAvoidingView
@@ -199,7 +231,10 @@ export default function SignInScreen() {
           <BrandField
             label="Email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => {
+              setEmail(v);
+              if (localError) setLocalError(null);
+            }}
             placeholder="you@example.com"
             keyboardType="email-address"
             autoComplete="email"
@@ -210,7 +245,10 @@ export default function SignInScreen() {
           <BrandField
             label="Password"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(v) => {
+              setPassword(v);
+              if (localError) setLocalError(null);
+            }}
             placeholder="••••••••"
             secureTextEntry={!showPassword}
             autoComplete="password"
@@ -249,19 +287,14 @@ export default function SignInScreen() {
           </Text>
         ) : null}
 
-        {error ? (
+        {localError || error ? (
           <View style={styles.error} accessibilityLiveRegion="polite">
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>{localError ?? error}</Text>
           </View>
         ) : null}
 
         <View style={styles.actions}>
-          <BrandButton
-            label="Sign in"
-            onPress={onSubmit}
-            loading={busy}
-            disabled={!canSubmit}
-          />
+          <BrandButton label="Sign in" onPress={onSubmit} loading={busy} />
           {capability?.available && !biometricReady ? (
             <>
               <View style={{ height: space.s3 }} />
@@ -269,7 +302,7 @@ export default function SignInScreen() {
                 label={`Remember with ${capabilityLabel(capability.kind)}`}
                 variant="ghost"
                 onPress={onRemember}
-                disabled={!canSubmit || biometricBusy}
+                disabled={biometricBusy || Boolean(missingField())}
               />
             </>
           ) : null}

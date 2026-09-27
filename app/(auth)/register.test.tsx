@@ -38,29 +38,33 @@ describe('RegisterScreen', () => {
     expect(screen.getByText(/Create your account on careerpilot.cc/i)).toBeTruthy();
   });
 
-  it('disables submit until all three fields are valid', async () => {
+  it('explains an incomplete form rather than ignoring the tap', async () => {
+    // The button used to be `disabled` until every field was valid, so tapping
+    // it did nothing and the only signal was a dimmed colour. It now responds
+    // and says which field is wrong.
     await render(
       <AllProviders>
         <RegisterScreen />
       </AllProviders>,
     );
-    expect(screen.getByLabelText('Create account').props.accessibilityState?.disabled).toBe(
-      true,
-    );
+    const button = screen.getByLabelText('Create account');
+    expect(button.props.accessibilityState?.disabled).toBeFalsy();
 
-    fireEvent.changeText(screen.getByLabelText('Name'), 'A');
+    fireEvent.press(button);
+    await waitFor(() => expect(screen.getByText('Enter your name.')).toBeTruthy());
+
+    fireEvent.changeText(screen.getByLabelText('Name'), 'Sujoy');
+    await waitFor(() => expect(screen.getByLabelText('Name').props.value).toBe('Sujoy'));
+    fireEvent.press(screen.getByLabelText('Create account'));
+    await waitFor(() => expect(screen.getByText('Enter your email address.')).toBeTruthy());
+
     fireEvent.changeText(screen.getByLabelText('Email'), 'a@gmail.com');
-    // seven characters — one short
+    await waitFor(() => expect(screen.getByLabelText('Email').props.value).toBe('a@gmail.com'));
     fireEvent.changeText(screen.getByLabelText('Password'), '1234567');
-    expect(screen.getByLabelText('Create account').props.accessibilityState?.disabled).toBe(
-      true,
+    await waitFor(() => expect(screen.getByLabelText('Password').props.value).toBe('1234567'));
+    fireEvent.press(screen.getByLabelText('Create account'));
+    await waitFor(() =>
+      expect(screen.getByText('Use a password of at least 8 characters.')).toBeTruthy(),
     );
-
-    fireEvent.changeText(screen.getByLabelText('Password'), '12345678');
-    await waitFor(() => {
-      expect(screen.getByLabelText('Create account').props.accessibilityState?.disabled).toBe(
-        false,
-      );
-    });
   });
 });

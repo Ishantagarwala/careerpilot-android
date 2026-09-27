@@ -34,11 +34,25 @@ export default function RegisterScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit =
-    name.trim().length > 0 && email.trim().length > 0 && password.length >= 8 && !busy;
+  /*
+   * Same lesson as the sign-in screen: a `disabled` submit that refuses
+   * silently reads as a broken app. The button always responds now, and an
+   * incomplete form says which field is wrong.
+   */
+  function missingField(): string | null {
+    if (!name.trim()) return 'Enter your name.';
+    if (!email.trim()) return 'Enter your email address.';
+    if (password.length < 8) return 'Use a password of at least 8 characters.';
+    return null;
+  }
 
   async function onSubmit() {
-    if (!canSubmit) return;
+    if (busy) return;
+    const missing = missingField();
+    if (missing) {
+      setError(missing);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -89,11 +103,23 @@ export default function RegisterScreen() {
         </Text>
 
         <View style={styles.form}>
-          <BrandField label="Name" value={name} onChangeText={setName} placeholder="Your name" />
+          <BrandField
+            label="Name"
+            value={name}
+            onChangeText={(v) => {
+              setName(v);
+              // Clear a stale validation message as soon as the user acts on it.
+              if (error) setError(null);
+            }}
+            placeholder="Your name"
+          />
           <BrandField
             label="Email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => {
+              setEmail(v);
+              if (error) setError(null);
+            }}
             placeholder="you@example.com"
             keyboardType="email-address"
             autoComplete="email"
@@ -102,7 +128,10 @@ export default function RegisterScreen() {
           <BrandField
             label="Password"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(v) => {
+              setPassword(v);
+              if (error) setError(null);
+            }}
             placeholder="At least 8 characters"
             secureTextEntry
             autoComplete="password"
@@ -136,12 +165,7 @@ export default function RegisterScreen() {
         ) : null}
 
         <View style={styles.actions}>
-          <BrandButton
-            label="Create account"
-            onPress={onSubmit}
-            loading={busy}
-            disabled={!canSubmit}
-          />
+          <BrandButton label="Create account" onPress={onSubmit} loading={busy} />
           <View style={{ height: space.s3 }} />
           <BrandButton label="Back to sign in" variant="ghost" onPress={() => router.back()} />
         </View>
