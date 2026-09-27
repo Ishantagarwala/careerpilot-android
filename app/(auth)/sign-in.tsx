@@ -55,7 +55,23 @@ export default function SignInScreen() {
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [biometricNote, setBiometricNote] = useState<string | null>(null);
 
-  const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
+  /*
+   * Whitespace is trimmed from BOTH fields.
+   *
+   * The server lowercases and trims the email but compares the password byte
+   * for byte against a bcrypt hash, so a single trailing space — which mobile
+   * keyboards add routinely through autocomplete and swipe — produces a flat
+   * "Email or password is incorrect." with nothing to suggest the cause.
+   * Verified against production: "demo1234 " is a 401, "demo1234" is a 200.
+   *
+   * Trimming here rather than server-side is deliberate: a password that
+   * genuinely begins or ends with a space is far rarer than the accidental one,
+   * and changing the server would alter behaviour for the web app too.
+   */
+  const trimmedEmail = email.trim();
+  const trimmedPassword = password.trim();
+
+  const canSubmit = trimmedEmail.length > 0 && trimmedPassword.length > 0 && !busy;
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +88,7 @@ export default function SignInScreen() {
 
   async function onSubmit() {
     if (!canSubmit) return;
-    await signIn(email.trim(), password);
+    await signIn(trimmedEmail, trimmedPassword);
   }
 
   /**
