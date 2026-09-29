@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -43,7 +43,7 @@ import { brandLight, space } from '@/theme/tokens';
  * does nothing.
  */
 export default function SignInScreen() {
-  const { signIn, busy, error } = useAuth();
+  const { signIn, busy, error, status, hasOnboarded } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState('');
@@ -55,6 +55,13 @@ export default function SignInScreen() {
   const [biometricReady, setBiometricReady] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [biometricNote, setBiometricNote] = useState<string | null>(null);
+
+  // Navigate to hub or first-run once authenticated
+  useEffect(() => {
+    if (status === 'signedIn') {
+      router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
+    }
+  }, [status, hasOnboarded]);
 
   /*
    * Whitespace is trimmed from BOTH fields.
@@ -109,7 +116,10 @@ export default function SignInScreen() {
       return;
     }
     setLocalError(null);
-    await signIn(trimmedEmail, trimmedPassword);
+    const result = await signIn(trimmedEmail, trimmedPassword);
+    if (result.ok) {
+      router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
+    }
   }
 
   /**
@@ -134,7 +144,9 @@ export default function SignInScreen() {
         return;
       }
       const result = await signIn(auth.email, auth.password);
-      if (!result.ok) {
+      if (result.ok) {
+        router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
+      } else {
         // The stored password is stale — most likely changed elsewhere.
         await disableBiometric();
         setBiometricReady(false);
@@ -143,7 +155,7 @@ export default function SignInScreen() {
     } finally {
       setBiometricBusy(false);
     }
-  }, [signIn]);
+  }, [signIn, hasOnboarded]);
 
   /** Remember the credentials once a sign-in has actually succeeded. */
   const onRemember = useCallback(async () => {
@@ -165,9 +177,10 @@ export default function SignInScreen() {
       // whitespace the user never intended to type.
       await enableBiometric(trimmedEmail, trimmedPassword);
       setBiometricReady(true);
+      router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
     }
     setBiometricBusy(false);
-  }, [biometricBusy, trimmedEmail, trimmedPassword, signIn]);
+  }, [biometricBusy, trimmedEmail, trimmedPassword, signIn, hasOnboarded]);
 
   return (
     <KeyboardAvoidingView

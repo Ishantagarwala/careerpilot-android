@@ -150,7 +150,14 @@ async function tryTokenExchange(
       refreshToken?: string;
       message?: string;
       error?: string;
+      reason?: string;
     };
+
+    // When the mobile token route fails with bot_check (Play Integrity not yet configured
+    // on client/server), fall back to the web NextAuth credentials flow.
+    if (res.status === 403 && data.reason === 'bot_check') {
+      return { ok: false, fallbackEligible: true };
+    }
 
     if (!res.ok || !data.accessToken || !data.refreshToken) {
       return {
@@ -176,6 +183,24 @@ async function tryTokenExchange(
   }
 }
 
+/** Pull all set-cookie headers and format them for a Cookie request header. */
+function extractCookiesForHeader(res: Response): string {
+  let cookieStrings: string[] = [];
+  if (typeof res.headers.getSetCookie === 'function') {
+    cookieStrings = res.headers.getSetCookie();
+  }
+  if (!cookieStrings.length) {
+    const raw = res.headers.get('set-cookie');
+    if (raw) {
+      cookieStrings = raw.split(/,(?=[^;]+=)/);
+    }
+  }
+  return cookieStrings
+    .map((c) => c.split(';')[0]?.trim())
+    .filter((c): c is string => Boolean(c))
+    .join('; ');
+}
+
 /**
  * NextAuth credentials flow, documented in SYSTEM_WORKFLOW.md §3.
  *
@@ -191,14 +216,20 @@ async function tryCookieSignIn(email: string, password: string): Promise<SignInR
     const { csrfToken } = (await csrfRes.json()) as { csrfToken?: string };
     if (!csrfToken) return { ok: false, error: 'Could not start sign-in (no CSRF token)' };
 
+    const csrfCookies = extractCookiesForHeader(csrfRes);
     const form = new URLSearchParams({ email, password, csrfToken, json: 'true' });
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    };
+    if (csrfCookies) {
+      headers.Cookie = csrfCookies;
+    }
 
     const res = await fetch(`${API_BASE_URL}/api/auth/callback/credentials`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
+      headers,
       body: form.toString(),
       redirect: 'manual',
     });
@@ -225,22 +256,27 @@ async function tryCookieSignIn(email: string, password: string): Promise<SignInR
 
 /** Pull the session cookie out of a response. RN does not persist it for us. */
 function extractSessionCookie(res: Response): string | null {
-  const header =
-    res.headers.get('set-cookie') ??
-    // Some Android stacks expose multiple Set-Cookie headers via getSetCookie().
-    (typeof res.headers.getSetCookie === 'function'
-      ? res.headers.getSetCookie().join(', ')
-      : null);
+  let cookieStrings: string[] = [];
+  if (typeof res.headers.getSetCookie === 'function') {
+    cookieStrings = res.headers.getSetCookie();
+  }
+  if (!cookieStrings.length) {
+    const header = res.headers.get('set-cookie');
+    if (header) {
+      cookieStrings = header.split(/,(?=[^;]+=)/);
+    }
+  }
 
-  if (!header) return null;
-
-  const parts = header
-    .split(/,(?=[^;]+=)/)
+  const parts = cookieStrings
     .map((p) => p.split(';')[0]?.trim())
     .filter((p): p is string => Boolean(p));
 
   const session = parts.filter(
-    (p) => p.startsWith('__Secure-authjs.session-token=') || p.startsWith('authjs.session-token='),
+    (p) =>
+      p.startsWith('__Secure-authjs.session-token') ||
+      p.startsWith('authjs.session-token') ||
+      p.startsWith('__Secure-next-auth.session-token') ||
+      p.startsWith('next-auth.session-token'),
   );
   return session.length ? session.join('; ') : null;
 }
@@ -253,18 +289,49 @@ async function fetchSession(cookie: string): Promise<SessionUser | null> {
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { user?: SessionUser } | null;
-    return data?.user?.id ? data.user : null;
+    const user = data?.user;
+    if (user && (user.id || user.email)) {
+      return {
+        id: user.id ?? user.email ?? 'unknown',
+        name: user.name,
+        email: user.email,
+      };
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
 async function rejectionReason(res: Response): Promise<string> {
+  const location = res.headers.get('location');
+  if (location) {
+    const match = location.match(/[?&]error=([^&]+)/);
+    if (match?.[1]) {
+      const code = decodeURIComponent(match[1]);
+      if (code === 'CredentialsSignin') {
+        return 'Email or password is incorrect.';
+      }
+      if (code === 'MissingCSRF') {
+        return 'Could not verify session security (CSRF failure).';
+      }
+      return code;
+    }
+  }
+
   try {
-    const data = (await res.json()) as { url?: string; error?: string };
-    // NextAuth redirects to /login?error=... on failure.
-    const code = data.url?.split('error=')[1] ?? data.error;
-    if (code) return decodeURIComponent(code.replace(/&.*$/, ''));
+    const text = await res.text();
+    if (text) {
+      const data = JSON.parse(text) as { url?: string; error?: string; message?: string };
+      const code = data.url?.split('error=')[1] ?? data.error ?? data.message;
+      if (code) {
+        const decoded = decodeURIComponent(code.replace(/&.*$/, ''));
+        if (decoded === 'CredentialsSignin') {
+          return 'Email or password is incorrect.';
+        }
+        return decoded;
+      }
+    }
   } catch {
     /* fall through */
   }
