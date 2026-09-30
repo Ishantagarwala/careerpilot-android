@@ -55,7 +55,7 @@ export function ReasoningDisclosure({
         </Text>
       </Pressable>
       {open ? (
-        <Text style={[styles.body, { color: hub.muted }]} selectable>
+        <Text style={[styles.body, { color: hub.muted, borderLeftColor: hub.soft }]} selectable>
           {reasoning}
         </Text>
       ) : null}

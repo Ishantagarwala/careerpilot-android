@@ -117,8 +117,8 @@ export async function runAssessment(answers: AssessmentAnswers): Promise<AssessR
   });
 
   return {
-    recommendations: data.recommendations ?? [],
-    selectionPreserved: data.selectionPreserved ?? true,
+    recommendations: data?.recommendations ?? [],
+    selectionPreserved: data?.selectionPreserved ?? true,
   };
 }
 
@@ -141,8 +141,8 @@ export async function generateNicheCatalog(niche: string): Promise<NicheCatalog>
     body: { niche: niche.trim() },
   });
   return {
-    interests: data.interests ?? [],
-    subjects: data.subjects ?? [],
-    skills: data.skills ?? [],
+    interests: data?.interests ?? [],
+    subjects: data?.subjects ?? [],
+    skills: data?.skills ?? [],
   };
 }

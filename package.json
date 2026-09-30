@@ -6,7 +6,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "mockups:render": "python3 design/build.py",

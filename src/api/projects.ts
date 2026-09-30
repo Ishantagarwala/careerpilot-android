@@ -51,12 +51,12 @@ export async function listProjectIdeas(): Promise<ProjectIdea[]> {
     '/api/projects?mode=ideas',
   );
   if (Array.isArray(data)) return data;
-  return data.ideas ?? [];
+  return data?.ideas ?? [];
 }
 
 export async function listTeamPosts(): Promise<TeamPost[]> {
   const data = await apiFetch<TeamPost[] | { posts?: TeamPost[] }>('/api/projects/teams');
   if (Array.isArray(data)) return data;
-  return data.posts ?? [];
+  return data?.posts ?? [];
 }
 

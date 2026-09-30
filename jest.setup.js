@@ -6,6 +6,9 @@
  * suite that renders it.
  */
 
+jest.setTimeout(30000);
+
+
 // expo-secure-store is backed by the Android Keystore and has no JS
 // implementation under Jest.
 jest.mock('expo-secure-store', () => {

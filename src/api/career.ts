@@ -36,7 +36,7 @@ export async function getRecommendations(): Promise<CareerRecommendation[]> {
     '/api/career/recommendations',
   );
   if (Array.isArray(data)) return data;
-  return data.recommendations ?? [];
+  return data?.recommendations ?? [];
 }
 
 /** The recommendation the user pinned as their direction, if any. */
@@ -133,7 +133,7 @@ export async function updateProgress(input: {
       completed: input.completed,
     },
   });
-  return data.roadmap ?? null;
+  return data?.roadmap ?? null;
 }
 
 /* -------------------------------------------------------------------------- */

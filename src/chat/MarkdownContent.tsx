@@ -68,7 +68,7 @@ function Block({ block }: { block: Block }) {
         ) : (
           <Text style={[styles.orderedMarker, { color: hub.muted }]}>{block.marker}</Text>
         )}
-        <Text style={[styles.body, { color: hub.text }]} selectable>
+        <Text style={[styles.body, { color: hub.text, flex: 1 }]} selectable>
           {renderInline(block.text, hub.soft, hub.text)}
         </Text>
       </View>

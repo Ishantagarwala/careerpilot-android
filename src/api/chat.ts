@@ -220,7 +220,7 @@ export async function listThreads(): Promise<ChatThread[]> {
   const { apiFetch } = await import('./client');
   const data = await apiFetch<ThreadListResponse | ChatThread[]>('/api/ai-hub/threads');
   if (Array.isArray(data)) return data;
-  return data.threads ?? [];
+  return data?.threads ?? [];
 }
 
 export interface ThreadMessage {
@@ -240,5 +240,5 @@ export async function getThread(id: string): Promise<{
 }> {
   const { apiFetch } = await import('./client');
   const data = await apiFetch<ThreadDetailResponse>(`/api/ai-hub/threads/${id}`);
-  return { messages: data.messages ?? [], thread: data.thread };
+  return { messages: data?.messages ?? [], thread: data?.thread };
 }

@@ -213,7 +213,8 @@ async function tryCookieSignIn(email: string, password: string): Promise<SignInR
     const csrfRes = await fetch(`${API_BASE_URL}/api/auth/csrf`, {
       headers: { Accept: 'application/json' },
     });
-    const { csrfToken } = (await csrfRes.json()) as { csrfToken?: string };
+    if (!csrfRes.ok) return { ok: false, error: `Could not start sign-in (${csrfRes.status})` };
+    const { csrfToken } = (await csrfRes.json().catch(() => ({}))) as { csrfToken?: string };
     if (!csrfToken) return { ok: false, error: 'Could not start sign-in (no CSRF token)' };
 
     const csrfCookies = extractCookiesForHeader(csrfRes);

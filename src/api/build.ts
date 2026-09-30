@@ -61,7 +61,7 @@ export interface Resume {
 export async function listResumes(): Promise<Resume[]> {
   const data = await apiFetch<Resume[] | { resumes?: Resume[] }>('/api/resume');
   if (Array.isArray(data)) return data;
-  return data.resumes ?? [];
+  return data?.resumes ?? [];
 }
 
 /**
@@ -143,7 +143,7 @@ export async function searchJobs(
   const data = await apiFetch<{ jobs?: Job[]; meta?: JobsMeta }>(
     `/api/jobs${qs ? `?${qs}` : ''}`,
   );
-  return { jobs: data.jobs ?? [], meta: data.meta ?? { count: 0 } };
+  return { jobs: data?.jobs ?? [], meta: data?.meta ?? { count: 0 } };
 }
 
 /**
@@ -186,7 +186,7 @@ export async function listApplications(): Promise<Application[]> {
     '/api/jobs/applications',
   );
   if (Array.isArray(data)) return data;
-  return data.applications ?? [];
+  return data?.applications ?? [];
 }
 
 /** Human labels for the status enum. Kept beside it so they cannot drift. */
