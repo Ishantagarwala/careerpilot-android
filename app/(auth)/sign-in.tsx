@@ -43,7 +43,7 @@ import { brandLight, space } from '@/theme/tokens';
  * does nothing.
  */
 export default function SignInScreen() {
-  const { signIn, busy, error, status, hasOnboarded } = useAuth();
+  const { signIn, signInAsDemo, busy, error, status, hasOnboarded } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState('');
@@ -117,6 +117,15 @@ export default function SignInScreen() {
     }
     setLocalError(null);
     const result = await signIn(trimmedEmail, trimmedPassword);
+    if (result.ok) {
+      router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
+    }
+  }
+
+  async function onDemo() {
+    if (busy) return;
+    setLocalError(null);
+    const result = await signInAsDemo();
     if (result.ok) {
       router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
     }
@@ -329,6 +338,8 @@ export default function SignInScreen() {
           <Link href="/(auth)/register" asChild>
             <BrandButton label="Create an account" variant="ghost" />
           </Link>
+          <View style={{ height: space.s3 }} />
+          <BrandButton label="Try Demo Mode" onPress={onDemo} loading={busy} />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

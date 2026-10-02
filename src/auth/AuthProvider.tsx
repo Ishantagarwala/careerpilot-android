@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import {
   restoreSession,
   signIn as performSignIn,
+  signInAsDemo as performSignInAsDemo,
   signOut as performSignOut,
   type SignInResult,
 } from './session';
@@ -20,6 +21,7 @@ interface AuthState {
   error: string | null;
   busy: boolean;
   signIn(email: string, password: string): Promise<SignInResult>;
+  signInAsDemo(): Promise<SignInResult>;
   signOut(): Promise<void>;
   /** true once the first-run screens have been completed on this device */
   hasOnboarded: boolean;
@@ -89,6 +91,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const signInAsDemo = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await performSignInAsDemo();
+      const session = await restoreSession();
+      setUser(session);
+      setStatus(session ? 'signedIn' : 'signedOut');
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not enter demo mode.';
+      setError(message);
+      return { ok: false as const, error: message };
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     setBusy(true);
     try {
@@ -110,8 +130,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ status, user, error, busy, signIn, signOut, hasOnboarded, completeOnboarding }),
-    [status, user, error, busy, signIn, signOut, hasOnboarded, completeOnboarding],
+    () => ({ status, user, error, busy, signIn, signInAsDemo, signOut, hasOnboarded, completeOnboarding }),
+    [status, user, error, busy, signIn, signInAsDemo, signOut, hasOnboarded, completeOnboarding],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
