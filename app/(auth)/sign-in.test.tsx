@@ -54,16 +54,24 @@ describe('SignInScreen', () => {
     expect(screen.getByLabelText('Create an account')).toBeTruthy();
   });
 
-  it('states why it cannot verify the device instead of showing a fake checkbox', async () => {
-    // The mockup shows an hCaptcha widget, which cannot run in React Native.
-    // What must appear instead is the real reason, so the user is not left
-    // staring at a control that does nothing.
+  it('states which bot gate it will use instead of showing a fake checkbox', async () => {
+    // The mockup shows an hCaptcha widget inline. Rendering a dead one would be
+    // worse than not rendering it, so the notice states the gate instead: Play
+    // Integrity when the build can attest, a captcha sheet otherwise. The sheet
+    // opens on the server's refusal, not on mount.
     await render(
       <AllProviders>
         <SignInScreen />
       </AllProviders>,
     );
-    expect(screen.getByText('Device check pending')).toBeTruthy();
+    expect(screen.getByText('Before you sign in')).toBeTruthy();
+    // Three possible reasons depending on config, and all of them name the gate:
+    // no project configured / attestation switched off for a sideloaded build /
+    // attestation enabled. Under Jest none of the EXPO_PUBLIC_* vars are set, so
+    // this exercises the unconfigured wording.
+    expect(screen.getByText(/Play Integrity|captcha/i)).toBeTruthy();
+    // Not shown until the server asks for one.
+    expect(screen.queryByText('Quick check')).toBeNull();
   });
 
   it('tells the user about the residential-IP restriction before they try', async () => {

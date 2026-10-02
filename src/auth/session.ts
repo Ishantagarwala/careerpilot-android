@@ -38,7 +38,15 @@ import {
 
 export type SignInResult =
   | { ok: true; method: 'token' | 'cookie' }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /**
+       * The server wants a captcha before it will consider the credentials, and
+       * the caller should obtain one and call signIn again with it.
+       */
+      needsCaptcha?: boolean;
+    };
 
 interface SessionUser {
   id: string;
@@ -100,24 +108,47 @@ export async function signInAsDemo(): Promise<SignInResult> {
   return { ok: true, method: 'token' };
 }
 
-export async function signIn(email: string, password: string): Promise<SignInResult> {
+/**
+ * Sign in.
+ *
+ * `captchaToken` is supplied on a retry, after the server has said it needs one
+ * (see SignInResult.needsCaptcha). Callers should pass it through from the
+ * hCaptcha webview rather than obtaining one up front: most sign-ins should not
+ * have to solve a captcha.
+ */
+export async function signIn(
+  email: string,
+  password: string,
+  captchaToken?: string,
+): Promise<SignInResult> {
   // Obtained before the request so a build that cannot attest fails with an
-  // explanation rather than a server rejection the user cannot act on.
+  // explanation rather than a server rejection the user cannot act on. Null
+  // (the common case for a sideloaded build) routes the server to the captcha
+  // gate instead.
   const integrityToken = await obtainIntegrityToken();
-  return signInWith(email, password, integrityToken);
+  return signInWith(email, password, integrityToken, captchaToken);
 }
 
 async function signInWith(
   email: string,
   password: string,
   integrityToken: string | null,
+  captchaToken?: string,
 ): Promise<SignInResult> {
-  const tokenResult = await tryTokenExchange(email, password, integrityToken);
+  const tokenResult = await tryTokenExchange(email, password, integrityToken, captchaToken);
   if (tokenResult.ok) return tokenResult;
+
+  if (tokenResult.kind === 'captcha') {
+    return {
+      ok: false,
+      error: tokenResult.error,
+      needsCaptcha: true,
+    };
+  }
 
   // Only fall back when the endpoint genuinely is not there. A rejected
   // credential must surface as a rejection, not as a second auth attempt.
-  if (tokenResult.fallbackEligible) {
+  if (tokenResult.kind === 'fallback') {
     // The web cookie path has no integrity mechanism, so on a production
     // deployment it will be refused by bot verification. It still exists for
     // local development, where verification is skipped.
@@ -126,15 +157,24 @@ async function signInWith(
   return tokenResult.result;
 }
 
+/**
+ * Three ways the token exchange can decline, kept as distinct variants so the
+ * caller cannot confuse "try a different flow" with "ask the user for a
+ * captcha" — they need opposite handling.
+ */
 type TokenAttempt =
   | { ok: true; method: 'token' }
-  | { ok: false; fallbackEligible: true }
-  | { ok: false; fallbackEligible: false; result: { ok: false; error: string } };
+  /** Route absent (404/405): the NextAuth cookie flow is the only path left. */
+  | { ok: false; kind: 'fallback' }
+  /** The server wants a captcha before it will look at the credentials. */
+  | { ok: false; kind: 'captcha'; error: string }
+  | { ok: false; kind: 'error'; result: { ok: false; error: string } };
 
 async function tryTokenExchange(
   email: string,
   password: string,
   integrityToken: string | null,
+  captchaToken?: string,
 ): Promise<TokenAttempt> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/auth/mobile/token`, {
@@ -146,11 +186,12 @@ async function tryTokenExchange(
         // Omitted rather than sent as null: the server treats a present-but-
         // empty value differently from absent.
         ...(integrityToken ? { integrityToken } : {}),
+        ...(captchaToken ? { captchaToken } : {}),
       }),
     });
 
     if (res.status === 404 || res.status === 405) {
-      return { ok: false, fallbackEligible: true };
+      return { ok: false, kind: 'fallback' };
     }
 
     // The mobile route answers { message, reason } — not { error }, which the
@@ -164,16 +205,22 @@ async function tryTokenExchange(
       reason?: string;
     };
 
-    // When the mobile token route fails with bot_check (Play Integrity not yet configured
-    // on client/server), fall back to the web NextAuth credentials flow.
+    // Bot gate refused. Do NOT fall back to the web NextAuth flow here: that
+    // path runs the same gate and this client sends it no captcha either, so it
+    // could only fail identically. The way through is a captcha token, which the
+    // caller obtains and retries with.
     if (res.status === 403 && data.reason === 'bot_check') {
-      return { ok: false, fallbackEligible: true };
+      return {
+        ok: false,
+        kind: 'captcha',
+        error: data.message ?? 'Confirm you are a person to finish signing in.',
+      };
     }
 
     if (!res.ok || !data.accessToken || !data.refreshToken) {
       return {
         ok: false,
-        fallbackEligible: false,
+        kind: 'error',
         result: {
           ok: false,
           error: data.message ?? data.error ?? `Sign-in failed (${res.status})`,
@@ -188,7 +235,7 @@ async function tryTokenExchange(
     // Network-level failure: do not silently try a different auth path.
     return {
       ok: false,
-      fallbackEligible: false,
+      kind: 'error',
       result: { ok: false, error: networkMessage(err) },
     };
   }

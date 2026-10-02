@@ -20,7 +20,7 @@ interface AuthState {
   user: SessionUser | null;
   error: string | null;
   busy: boolean;
-  signIn(email: string, password: string): Promise<SignInResult>;
+  signIn(email: string, password: string, captchaToken?: string): Promise<SignInResult>;
   signInAsDemo(): Promise<SignInResult>;
   signOut(): Promise<void>;
   /** true once the first-run screens have been completed on this device */
@@ -61,13 +61,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, captchaToken?: string) => {
     setBusy(true);
     setError(null);
     try {
-      const result = await performSignIn(email, password);
+      const result = await performSignIn(email, password, captchaToken);
       if (!result.ok) {
-        setError(result.error);
+        // A captcha prompt is not a failure to report — the caller opens the
+        // captcha sheet and retries. Showing it as an error too doubles up.
+        if (!result.needsCaptcha) setError(result.error);
         return result;
       }
       const session = await restoreSession();

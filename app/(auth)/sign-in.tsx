@@ -1,5 +1,5 @@
 import { Link, router } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -29,6 +29,7 @@ import {
 } from '@/components/brand/BrandControls';
 import { BrandWordmark } from '@/components/brand/BrandWordmark';
 import { integrityStatus } from '@/auth/playIntegrity';
+import { HCaptchaModal } from '@/auth/HCaptchaModal';
 import { brandLight, space } from '@/theme/tokens';
 
 /**
@@ -36,12 +37,20 @@ import { brandLight, space } from '@/theme/tokens';
  *
  * Matches design/png/01-sign-in.png.
  *
- * NOTE ON BOT VERIFICATION: the mockup shows an hCaptcha widget, but hCaptcha
- * is a web widget and does not render in React Native. The mobile path uses Play
- * Integrity instead (src/auth/playIntegrity.ts). Until that module is wired up,
- * the notice below states the real reason rather than showing a checkbox that
- * does nothing.
+ * NOTE ON BOT VERIFICATION: two gates are possible and the server accepts
+ * either. Play Integrity attests the build — strongest, but it needs a Play
+ * Console listing and an install from Google Play, so a sideloaded APK can
+ * never pass it. hCaptcha in a webview is the fallback, and it is the same gate
+ * the web sign-in passes. The server says which it wants: when it refuses with
+ * bot_check, the captcha sheet opens and the attempt is retried with the token.
  */
+/**
+ * hCaptcha site key. Public by design — it is embedded in the page. Empty in a
+ * build that was never given one, which the screen reports instead of opening a
+ * captcha sheet that could not load.
+ */
+const HCAPTCHA_SITE_KEY = process.env.EXPO_PUBLIC_HCAPTCHA_SITE_KEY ?? '';
+
 export default function SignInScreen() {
   const { signIn, signInAsDemo, busy, error, status, hasOnboarded } = useAuth();
   const insets = useSafeAreaInsets();
@@ -55,6 +64,14 @@ export default function SignInScreen() {
   const [biometricReady, setBiometricReady] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [biometricNote, setBiometricNote] = useState<string | null>(null);
+
+  // The captcha sheet, and the attempt it is standing in for.
+  const [captchaVisible, setCaptchaVisible] = useState(false);
+  const pendingAttempt = useRef<{
+    email: string;
+    password: string;
+    onSolved?: () => Promise<void>;
+  } | null>(null);
 
   // Navigate to hub or first-run once authenticated
   useEffect(() => {
@@ -108,6 +125,46 @@ export default function SignInScreen() {
     };
   }, []);
 
+  /**
+   * Run a sign-in, and open the captcha sheet if the server asks for one.
+   *
+   * The captcha is requested lazily rather than up front: a build that can
+   * attest, or a server that accepts it, should never make the user solve a
+   * puzzle. `onSolved` carries whatever should happen after a SUCCESSFUL
+   * sign-in (saving the biometric credential, say), so the retry after a captcha
+   * behaves exactly like the first attempt.
+   */
+  const attemptSignIn = useCallback(
+    async (
+      email: string,
+      password: string,
+      captchaToken?: string,
+      onSolved?: () => Promise<void>,
+    ) => {
+      const result = await signIn(email, password, captchaToken);
+
+      if (result.ok) {
+        if (onSolved) await onSolved();
+        router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
+        return;
+      }
+
+      if (result.needsCaptcha) {
+        if (!HCAPTCHA_SITE_KEY) {
+          setLocalError(
+            'This build has no captcha key configured, so it cannot confirm you are a person.',
+          );
+          return;
+        }
+        // Park the attempt so the solved token can resume it verbatim.
+        pendingAttempt.current = { email, password, onSolved };
+        setLocalError(null);
+        setCaptchaVisible(true);
+      }
+    },
+    [signIn, hasOnboarded],
+  );
+
   async function onSubmit() {
     if (busy) return;
     const missing = missingField();
@@ -116,10 +173,7 @@ export default function SignInScreen() {
       return;
     }
     setLocalError(null);
-    const result = await signIn(trimmedEmail, trimmedPassword);
-    if (result.ok) {
-      router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
-    }
+    await attemptSignIn(trimmedEmail, trimmedPassword);
   }
 
   async function onDemo() {
@@ -180,16 +234,21 @@ export default function SignInScreen() {
     }
     setBiometricBusy(true);
     setBiometricNote(null);
-    const result = await signIn(trimmedEmail, trimmedPassword);
-    if (result.ok) {
-      // Store the trimmed values, so a remembered sign-in cannot fail later on
-      // whitespace the user never intended to type.
-      await enableBiometric(trimmedEmail, trimmedPassword);
-      setBiometricReady(true);
-      router.replace(hasOnboarded ? '/(tabs)/hub' : '/first-run');
+    try {
+      // Routed through attemptSignIn so a captcha challenge is handled the same
+      // way as a plain sign-in — including on the retry, which must still save
+      // the credential. This callback is what makes that happen: it runs only
+      // after a SUCCESSFUL sign-in, whichever attempt achieved it.
+      await attemptSignIn(trimmedEmail, trimmedPassword, undefined, async () => {
+        // Store the trimmed values, so a remembered sign-in cannot fail later on
+        // whitespace the user never intended to type.
+        await enableBiometric(trimmedEmail, trimmedPassword);
+        setBiometricReady(true);
+      });
+    } finally {
+      setBiometricBusy(false);
     }
-    setBiometricBusy(false);
-  }, [biometricBusy, trimmedEmail, trimmedPassword, signIn, hasOnboarded]);
+  }, [biometricBusy, trimmedEmail, trimmedPassword, attemptSignIn]);
 
   return (
     <KeyboardAvoidingView
@@ -288,7 +347,7 @@ export default function SignInScreen() {
         </View>
 
         <View style={styles.notice}>
-          <Text style={styles.noticeTitle}>Device check pending</Text>
+          <Text style={styles.noticeTitle}>Before you sign in</Text>
           <Text style={styles.noticeBody}>
             {integrityStatus().reason ??
               'CareerPilot verifies this device before signing in.'}
@@ -342,6 +401,32 @@ export default function SignInScreen() {
           <BrandButton label="Try Demo Mode" onPress={onDemo} loading={busy} />
         </View>
       </ScrollView>
+
+      {/*
+        hCaptcha sheet. Rendered last so it layers over the form, and driven by
+        the server's own bot_check refusal rather than by a heuristic here.
+      */}
+      <HCaptchaModal
+        visible={captchaVisible}
+        siteKey={HCAPTCHA_SITE_KEY}
+        onCancel={() => {
+          setCaptchaVisible(false);
+          pendingAttempt.current = null;
+        }}
+        onError={(message) => {
+          setCaptchaVisible(false);
+          pendingAttempt.current = null;
+          setLocalError(message);
+        }}
+        onToken={(token) => {
+          const pending = pendingAttempt.current;
+          setCaptchaVisible(false);
+          pendingAttempt.current = null;
+          if (pending) {
+            void attemptSignIn(pending.email, pending.password, token, pending.onSolved);
+          }
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }

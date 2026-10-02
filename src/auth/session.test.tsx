@@ -38,19 +38,73 @@ describe('auth session flows', () => {
     expect(tokens?.refreshToken).toBe('test-refresh-token');
   });
 
-  it('falls back to NextAuth credentials cookie sign-in when mobile token returns 403 bot_check', async () => {
+  /**
+   * The server's bot gate is answered with a captcha, NOT by replaying the
+   * password through the NextAuth cookie flow.
+   *
+   * That fallback used to run here. It could never succeed: the cookie flow runs
+   * the same bot gate and this client sends it no captcha either, so the user got
+   * a second refusal for their trouble. A sideloaded build cannot use Play
+   * Integrity at all, so the captcha is the only way through — which means the
+   * client has to say so rather than silently trying something else.
+   */
+  it('asks for a captcha when the server refuses with bot_check', async () => {
+    let cookieFlowAttempted = false;
+
+    global.fetch = jest.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/api/auth/mobile/token')) {
+        return new Response(
+          JSON.stringify({ message: 'Could not verify this device.', reason: 'bot_check' }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (u.includes('/api/auth/csrf') || u.includes('/api/auth/callback')) {
+        cookieFlowAttempted = true;
+      }
+      return new Response('Not found', { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const res = await signIn('user@example.com', 'password123');
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.needsCaptcha).toBe(true);
+    expect(res.ok === false && res.error).toBe('Could not verify this device.');
+    expect(cookieFlowAttempted).toBe(false);
+  });
+
+  it('sends the captcha token on the retry and signs in', async () => {
+    let body: Record<string, unknown> | undefined;
+
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/api/auth/mobile/token')) {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({ accessToken: 'a', refreshToken: 'r' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const res = await signIn('user@example.com', 'password123', 'captcha-token-abc');
+
+    expect(res).toEqual({ ok: true, method: 'token' });
+    expect(body?.captchaToken).toBe('captcha-token-abc');
+    // The captcha replaces the integrity token; sending both would make the
+    // server prefer attestation and refuse a build that cannot pass it.
+    expect(body?.integrityToken).toBeUndefined();
+  });
+
+  it('falls back to the NextAuth cookie flow only when the mobile route is absent', async () => {
     let credentialsCookieHeader: string | undefined;
 
     global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
       if (u.includes('/api/auth/mobile/token')) {
-        return new Response(
-          JSON.stringify({
-            message: 'Play Integrity must be configured on both.',
-            reason: 'bot_check',
-          }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } },
-        );
+        // 404 = the route does not exist, the one case that is a real fallback.
+        return new Response('Not found', { status: 404 });
       }
       if (u.includes('/api/auth/csrf')) {
         const r = new Response(JSON.stringify({ csrfToken: 'fake-csrf-token' }), {
@@ -107,13 +161,7 @@ describe('auth session flows', () => {
     global.fetch = jest.fn(async (url: string) => {
       const u = String(url);
       if (u.includes('/api/auth/mobile/token')) {
-        return new Response(
-          JSON.stringify({
-            message: 'Play Integrity must be configured on both.',
-            reason: 'bot_check',
-          }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } },
-        );
+        return new Response('Not found', { status: 404 });
       }
       if (u.includes('/api/auth/csrf')) {
         const r = new Response(JSON.stringify({ csrfToken: 'fake-csrf-token' }), {

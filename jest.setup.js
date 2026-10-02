@@ -41,6 +41,21 @@ jest.mock('@react-native-community/netinfo', () => ({
 }));
 
 /*
+ * react-native-webview resolves its TurboModule at import time, so merely
+ * importing the hCaptcha sheet throws "RNCWebViewModule could not be found"
+ * under Jest and takes down every suite that renders the sign-in screen. The
+ * stub renders a plain View; the captcha itself is never solved in a test.
+ */
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    WebView: ({ testID }: { testID?: string }) =>
+      React.createElement(View, { testID: testID ?? 'mock-webview' }),
+  };
+});
+
+/*
  * AsyncStorage has no native module under Jest. The package ships an official
  * mock; hand-rolling one here would drift from its API and silently change what
  * the offline cache tests actually exercise.

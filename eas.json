@@ -9,18 +9,33 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER": "53497304980",
+        "EXPO_PUBLIC_PLAY_INTEGRITY_DISABLED": "1",
+        "EXPO_PUBLIC_HCAPTCHA_SITE_KEY": "70162372-5458-48a8-bc6c-af7a8d5a2944"
       }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER": "53497304980",
+        "EXPO_PUBLIC_PLAY_INTEGRITY_DISABLED": "1",
+        "EXPO_PUBLIC_HCAPTCHA_SITE_KEY": "70162372-5458-48a8-bc6c-af7a8d5a2944"
       }
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER": "53497304980",
+        "EXPO_PUBLIC_PLAY_INTEGRITY_DISABLED": "1",
+        "EXPO_PUBLIC_HCAPTCHA_SITE_KEY": "70162372-5458-48a8-bc6c-af7a8d5a2944"
       }
     }
   },
