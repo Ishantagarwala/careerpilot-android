@@ -56,6 +56,8 @@ export default function BuildScreen() {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [ideas, setIdeas] = useState<ProjectIdea[] | null>(null);
   const [teamPosts, setTeamPosts] = useState<TeamPost[]>([]);
+  /** true when the Projects requests failed, as opposed to returning nothing */
+  const [projectsFailed, setProjectsFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [scoring, setScoring] = useState<string | null>(null);
@@ -78,6 +80,11 @@ export default function BuildScreen() {
 
     if (jobsResult.status === 'fulfilled') setJobs(jobsResult.value.jobs);
     else setJobs([]);
+
+    // A failed request is not an empty result. Without this the Projects panel
+    // asserted "No project ideas yet — set a career direction first" to users
+    // who had done exactly that and simply hit a failing endpoint.
+    setProjectsFailed(ideasResult.status === 'rejected' || teamsResult.status === 'rejected');
 
     if (ideasResult.status === 'fulfilled') setIdeas(ideasResult.value);
     else setIdeas([]);
@@ -149,7 +156,7 @@ export default function BuildScreen() {
         ) : null}
         {segment === 'Jobs' ? <JobsPanel jobs={jobs} applications={applications} /> : null}
         {segment === 'Projects' ? (
-          <ProjectsPanel ideas={ideas} teamPosts={teamPosts} />
+          <ProjectsPanel ideas={ideas} teamPosts={teamPosts} failed={projectsFailed} />
         ) : null}
       </ScrollView>
     </Screen>
@@ -508,9 +515,11 @@ function JobsPanel({ jobs, applications }: { jobs: Job[] | null; applications: A
 function ProjectsPanel({
   ideas,
   teamPosts,
+  failed,
 }: {
   ideas: ProjectIdea[] | null;
   teamPosts: TeamPost[];
+  failed: boolean;
 }) {
   const hub = useTheme('hub');
 
@@ -573,8 +582,9 @@ function ProjectsPanel({
       {ideas.length === 0 ? (
         <View style={[styles.card, { borderColor: hub.line, backgroundColor: hub.surface }]}>
           <Text style={[styles.bodyText, { color: hub.muted }]}>
-            No project ideas yet. They are generated from your pinned career
-            direction — set one on the Career tab first.
+            {failed
+              ? 'Could not load project ideas. Pull to refresh and try again.'
+              : 'No project ideas yet. They are generated from your pinned career direction — set one on the Career tab first.'}
           </Text>
         </View>
       ) : null}

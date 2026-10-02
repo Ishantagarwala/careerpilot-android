@@ -251,6 +251,12 @@ describe('AssessmentScreen', () => {
   });
 
   it('offers niche suggestions for a path the built-in domains do not cover', async () => {
+    assessApi.generateNicheCatalog.mockResolvedValue({
+      interests: ['Front desk operations'],
+      subjects: ['Hospitality management'],
+      skills: [],
+    });
+
     await mountWizard();
     fireEvent.press(screen.getByLabelText('Other / Niche Path'));
 
@@ -263,9 +269,14 @@ describe('AssessmentScreen', () => {
       ).toBe(false);
     });
     fireEvent.press(screen.getByLabelText('Suggest interests'));
+    expect(assessApi.generateNicheCatalog).toHaveBeenCalledWith('hotel management');
 
-    await waitFor(() => {
-      expect(assessApi.generateNicheCatalog).toHaveBeenCalledWith('hotel management');
-    });
+    // The fetched catalog populates the NEXT step, so walk into it and assert on
+    // the suggestions the user actually sees. Stopping at "the call happened"
+    // left the setState calls that follow it to land after the test had already
+    // finished — outside act(), which is what the "not configured to support
+    // act(...)" warnings were reporting.
+    await pressContinue();
+    await waitFor(() => expect(screen.getByText('Front desk operations')).toBeTruthy());
   });
 });

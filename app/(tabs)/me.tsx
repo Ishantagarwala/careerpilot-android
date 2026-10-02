@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { router } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/AuthProvider';
@@ -56,6 +57,19 @@ export default function MeScreen() {
   }, []);
 
   const initial = (user?.name?.trim()?.[0] ?? user?.email?.trim()?.[0] ?? 'C').toUpperCase();
+
+  /*
+   * Signing out has to move the user, not just clear the context.
+   *
+   * The only other consumer of `status` is app/index.tsx, and its route was
+   * already replaced by a Redirect on first navigation — so nothing reacted and
+   * the user sat on the Me tab with the previous account's roadmap, resumes and
+   * threads still mounted behind a "Signed in / —" header.
+   */
+  const onSignOut = useCallback(async () => {
+    await signOut();
+    router.replace('/(auth)/sign-in');
+  }, [signOut]);
 
   return (
     <Screen padded={false}>
@@ -191,7 +205,7 @@ export default function MeScreen() {
         </View>
 
         <Pressable
-          onPress={signOut}
+          onPress={onSignOut}
           disabled={busy}
           accessibilityRole="button"
           accessibilityLabel="Sign out"
@@ -239,7 +253,8 @@ function SettingRow({
         <Text style={[styles.rowTitle, { color: hub.text }]}>{label}</Text>
         {meta ? <Text style={[styles.rowMeta, { color: hub.muted }]}>{meta}</Text> : null}
       </View>
-      {trailing ?? <ChevronGlyph color={hub.muted} />}
+      {/* A chevron promises navigation; only show one when there is somewhere to go. */}
+      {trailing ?? (onPress ? <ChevronGlyph color={hub.muted} /> : null)}
     </Pressable>
   );
 }

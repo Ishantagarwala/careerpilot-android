@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, space, touch } from '@/theme/tokens';
+import { elevation, fontFamily, radius, space, touch } from '@/theme/tokens';
 
 /** Circular icon button — always >=44dp, with an accessibility label. */
 export function IconButton({
@@ -152,6 +152,9 @@ const styles = StyleSheet.create({
     paddingLeft: space.s4,
     paddingRight: space.s3,
     paddingVertical: space.s3,
+    // The doc comment above and DESIGN_SPEC.md §5 both require the soft shadow;
+    // the token existed but was applied nowhere, so the composer rendered flat.
+    ...elevation.hubComposer,
   },
   chip: {
     height: 40,
@@ -163,6 +166,9 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   chipText: {
+    // Without this the chip fell back to the system font — the only label in
+    // the app that did. design/android-shared.css .chipbtn is --f-mono.
+    fontFamily: fontFamily.monoMedium,
     fontSize: 11.5,
     letterSpacing: 0.2,
   },

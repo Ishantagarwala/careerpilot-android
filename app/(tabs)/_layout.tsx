@@ -4,7 +4,6 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChatProvider } from '@/chat/ChatProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, radius, space } from '@/theme/tokens';
 import {
@@ -32,19 +31,19 @@ const TABS: { name: string; label: string; Glyph: React.ComponentType<GlyphProps
 ];
 
 export default function TabsLayout() {
+  // ChatProvider is mounted by the root layout, not here: /threads is a sibling
+  // of this group and needs the same context.
   return (
-    <ChatProvider>
-      <Tabs
-        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: 'transparent' } }}
-        tabBar={(props) => <BottomNav {...props} />}
-      >
-        {TABS.map((t) => (
-          <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
-        ))}
-        {/* Reached from Career, not the bar — the visible tab count stays at 4. */}
-        <Tabs.Screen name="roadmap" options={{ href: null, title: 'Roadmap' }} />
-      </Tabs>
-    </ChatProvider>
+    <Tabs
+      screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: 'transparent' } }}
+      tabBar={(props) => <BottomNav {...props} />}
+    >
+      {TABS.map((t) => (
+        <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
+      ))}
+      {/* Reached from Career, not the bar — the visible tab count stays at 4. */}
+      <Tabs.Screen name="roadmap" options={{ href: null, title: 'Roadmap' }} />
+    </Tabs>
   );
 }
 

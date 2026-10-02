@@ -40,6 +40,16 @@ const STARTERS = [
   { t: 'Quiz me', s: 'On anything in your documents' },
 ];
 
+/**
+ * Colour of the send arrow while the composer is empty.
+ *
+ * Deliberately NOT hub.soft: SendButton fills itself with hub.soft when it is
+ * disabled, so passing that token here painted the arrow at 1:1 contrast — an
+ * empty grey circle where the primary action should be. Matches
+ * `.sendbtn.off { color: #b6bcc7 }` in design/android-shared.css.
+ */
+const DISABLED_SEND_GLYPH = '#b6bcc7';
+
 export default function HubScreen() {
   const hub = useTheme('hub');
   const { user } = useAuth();
@@ -59,12 +69,15 @@ export default function HubScreen() {
   const submit = useCallback(
     async (text?: string) => {
       const value = (text ?? draft).trim();
-      if (!value || isStreaming || value.length > MAX_MESSAGE_CHARS) return;
+      // isOnline is checked here too, not only in canSend: the starter cards
+      // call submit() directly and would otherwise fire a send the composer is
+      // deliberately refusing to make while offline.
+      if (!value || isStreaming || !isOnline || value.length > MAX_MESSAGE_CHARS) return;
       setDraft('');
       await send(value);
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     },
-    [draft, isStreaming, send],
+    [draft, isStreaming, isOnline, send],
   );
 
   const streaming = isStreaming || messages.some((m) => m.streaming);
@@ -129,12 +142,15 @@ export default function HubScreen() {
                 <Pressable
                   key={row.t}
                   onPress={() => submit(row.t)}
+                  disabled={!isOnline}
                   accessibilityRole="button"
                   accessibilityLabel={`${row.t}. ${row.s}`}
+                  accessibilityState={{ disabled: !isOnline }}
                   style={({ pressed }) => [
                     styles.starter,
                     { borderColor: hub.line, backgroundColor: hub.surface },
-                    pressed ? { opacity: 0.6 } : null,
+                    pressed && isOnline ? { opacity: 0.6 } : null,
+                    isOnline ? null : styles.starterOff,
                   ]}
                 >
                   <View style={styles.flex}>
@@ -219,7 +235,7 @@ export default function HubScreen() {
                 </Pressable>
               ) : (
                 <SendButton onPress={() => submit()} disabled={!canSend}>
-                  <SendGlyph color={canSend ? hub.bg : hub.soft} />
+                  <SendGlyph color={canSend ? hub.bg : DISABLED_SEND_GLYPH} />
                 </SendButton>
               )}
             </View>
@@ -269,6 +285,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  starterOff: { opacity: 0.5 },
   starterTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 14.5 },
   starterSub: { fontFamily: fontFamily.sans, fontSize: 12.5, marginTop: 2 },
   hint: { fontFamily: fontFamily.sans, fontSize: 12, marginTop: space.s4 },

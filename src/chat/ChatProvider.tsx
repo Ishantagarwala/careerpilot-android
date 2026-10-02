@@ -2,6 +2,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -75,11 +76,32 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const abortRef = useRef<AbortController | null>(null);
   /** Guards against a stale stream writing into a reset/new conversation. */
   const turnRef = useRef(0);
+  /**
+   * In-flight flag for the send guard.
+   *
+   * `isStreaming` state lags a render behind, so two sends dispatched in the
+   * same tick would both pass a state-based check; the second would then
+   * overwrite `abortRef`, leaving the first stream impossible to stop.
+   */
+  const streamingRef = useRef(false);
+
+  // Abort an in-flight stream when the provider goes away — sign-out, or any
+  // tree swap. Otherwise the request keeps running server-side (still billing
+  // the model call), its callbacks write into an unmounted tree, and the Stop
+  // control has left with the UI.
+  useEffect(
+    () => () => {
+      turnRef.current++;
+      abortRef.current?.abort();
+      abortRef.current = null;
+    },
+    [],
+  );
 
   const send = useCallback(
     async (message: string, options: SendOptions = {}) => {
       const text = message.trim();
-      if (!text || isStreaming) return;
+      if (!text || streamingRef.current) return;
 
       if (text.length > MAX_MESSAGE_CHARS) {
         setError(`That message is too long (limit ${MAX_MESSAGE_CHARS.toLocaleString()} characters).`);
@@ -88,6 +110,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       setError(null);
       setLiveReasoning('');
+      streamingRef.current = true;
       setIsStreaming(true);
 
       const assistantId = nextId();
@@ -170,26 +193,33 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           );
         }
       } catch (err) {
-        if (stale()) return;
         const aborted = err instanceof Error && err.name === 'AbortError';
         const message = aborted
           ? 'Stopped.'
           : err instanceof Error
             ? err.message
             : 'Something went wrong.';
+        // Patched even when a newer turn has already taken over: this message's
+        // "streaming" flag belongs to this turn alone and nothing else will ever
+        // clear it. Skipping it (the old "if (stale()) return") left a bubble
+        // stuck on "thinking..." forever after stop() plus a quick re-send.
         patchAssistant({ streaming: false, error: message });
-        if (!aborted) setError(message);
+        if (!stale() && !aborted) setError(message);
       } finally {
-        if (!stale()) setIsStreaming(false);
+        if (!stale()) {
+          streamingRef.current = false;
+          setIsStreaming(false);
+        }
         if (abortRef.current === controller) abortRef.current = null;
       }
     },
-    [isStreaming, threadId],
+    [threadId],
   );
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    streamingRef.current = false;
     setIsStreaming(false);
   }, []);
 
@@ -198,6 +228,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     turnRef.current++;
     abortRef.current?.abort();
     abortRef.current = null;
+    streamingRef.current = false;
     setThreadId(null);
     setTitle(null);
     setMessages([]);
@@ -210,6 +241,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     turnRef.current++;
     abortRef.current?.abort();
     abortRef.current = null;
+    streamingRef.current = false;
     setThreadId(thread._id);
     setTitle(thread.title ?? null);
     setMessages(loaded);

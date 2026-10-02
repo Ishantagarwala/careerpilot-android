@@ -162,7 +162,13 @@ function renderInline(
   textColor: string,
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(_[^_]+_)/g;
+  /*
+   * The underscore alternative requires a non-word character before it (or the
+   * start of the text). CommonMark does not open emphasis with an intra-word
+   * underscore, and treating it as one swallowed identifiers: "max_tokens and
+   * user_id" rendered as "max" + italic("tokens and user") + "id".
+   */
+  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(^|[^\w])_([^_\n]+)_(?=[^\w]|$)/g;
 
   let last = 0;
   let match: RegExpExecArray | null;
@@ -172,6 +178,22 @@ function renderInline(
     if (match.index > last) {
       nodes.push(text.slice(last, match.index));
     }
+
+    const boundary = match[4];
+    const emphasis = match[5];
+    if (boundary !== undefined) {
+      // The boundary character is part of the match (there is no lookbehind),
+      // so it is re-emitted as plain text rather than italicised.
+      if (boundary) nodes.push(boundary);
+      nodes.push(
+        <Text key={key++} style={styles.italic}>
+          {emphasis}
+        </Text>,
+      );
+      last = match.index + match[0].length;
+      continue;
+    }
+
     const token = match[0];
     if (token.startsWith('`')) {
       nodes.push(

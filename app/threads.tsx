@@ -38,14 +38,18 @@ export default function ThreadsScreen() {
   const { loadThread, threadId, reset } = useChat();
 
   const [threads, setThreads] = useState<ChatThread[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Two failures, two states. Sharing one meant a single thread that failed to
+  // open replaced the whole list with a full-screen error, so the user lost the
+  // ability to pick a different one.
+  const [listError, setListError] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [opening, setOpening] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [cachedAt, setCachedAt] = useState('');
 
   const load = useCallback(async () => {
-    setError(null);
+    setListError(null);
     // Read-through cache: an offline launch still lists the threads the user
     // has seen, labelled with how old they are.
     const hit = await cached(CacheKeys.threads, listThreads);
@@ -53,7 +57,7 @@ export default function ThreadsScreen() {
     setStale(hit.stale);
     setCachedAt(freshness(hit.at));
     if (!hit.value && hit.error) {
-      setError(hit.error instanceof Error ? hit.error.message : 'Could not load threads.');
+      setListError(hit.error instanceof Error ? hit.error.message : 'Could not load threads.');
     }
   }, []);
 
@@ -71,6 +75,7 @@ export default function ThreadsScreen() {
   const open = useCallback(
     async (thread: ChatThread) => {
       setOpening(thread._id);
+      setOpenError(null);
       haptics.tap();
       try {
         const detail = await getThread(thread._id);
@@ -86,7 +91,7 @@ export default function ThreadsScreen() {
         router.back();
       } catch (err) {
         haptics.warn();
-        setError(err instanceof Error ? err.message : 'Could not open that thread.');
+        setOpenError(err instanceof Error ? err.message : 'Could not open that thread.');
       } finally {
         setOpening(null);
       }
@@ -130,9 +135,9 @@ export default function ThreadsScreen() {
 
       {stale ? <OfflineBanner message="You're offline. These threads are saved on this device." cachedAt={cachedAt} /> : null}
 
-      {error ? (
+      {listError ? (
         <View style={styles.center}>
-          <Text style={[styles.errorText, { color: hub.danger }]}>{error}</Text>
+          <Text style={[styles.errorText, { color: hub.danger }]}>{listError}</Text>
           <Pressable onPress={load} accessibilityRole="button" hitSlop={8}>
             <Text style={[styles.retry, { color: hub.text }]}>Retry</Text>
           </Pressable>
@@ -153,6 +158,14 @@ export default function ThreadsScreen() {
           </Text>
         </View>
       ) : (
+        <>
+          {/* An open failure is reported here, above the list, instead of
+              replacing it — the list is still perfectly usable. */}
+          {openError ? (
+            <View style={styles.inlineError}>
+              <Text style={[styles.errorText, { color: hub.danger }]}>{openError}</Text>
+            </View>
+          ) : null}
         <FlatList
           data={filtered}
           keyExtractor={(t) => t._id}
@@ -189,6 +202,7 @@ export default function ThreadsScreen() {
             </Pressable>
           )}
         />
+        </>
       )}
     </View>
   );
@@ -252,6 +266,7 @@ const styles = StyleSheet.create({
   rowTitle: { fontFamily: fontFamily.sansSemiBold, fontSize: 14.5 },
   rowMeta: { fontFamily: fontFamily.sans, fontSize: 12, marginTop: 2 },
 
+  inlineError: { paddingHorizontal: space.s4, paddingTop: space.s2 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.s6, gap: 8 },
   emptyTitle: { fontFamily: fontFamily.heading, fontSize: 17 },
   emptyBody: { fontFamily: fontFamily.sans, fontSize: 13.5, textAlign: 'center' },
