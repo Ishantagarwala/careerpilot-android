@@ -1,5 +1,6 @@
 import { API_BASE_URL, ApiError } from '@/api/client';
-import { registerRefresher } from '@/api/credentials';
+import { refreshAccessToken, registerRefresher } from '@/api/credentials';
+import { disableBiometric } from './biometrics';
 import { obtainIntegrityToken } from './playIntegrity';
 import {
   clearAllCredentials,
@@ -67,9 +68,13 @@ registerRefresher(async () => {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refreshToken }),
     });
-    // Fail closed — a rejected refresh means the credential is dead.
+    // Fail closed — a rejected refresh means the credential is dead. A 429 or a
+    // 5xx is a transient failure, not a rejection, and must not sign the user
+    // out; the catch below treats those the same way.
     if (!res.ok) {
-      await clearAllCredentials();
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        await clearAllCredentials();
+      }
       return null;
     }
     const data = (await res.json()) as { accessToken?: string; refreshToken?: string };
@@ -360,6 +365,19 @@ export async function restoreSession(): Promise<SessionUser | null> {
     // Trust but verify: a stale token must not present as signed in.
     const session = await verifyToken(tokens.accessToken);
     if (session) return session;
+
+    // A rejected ACCESS token is the normal case every 15 minutes — the refresh
+    // token lives 60 days (design/API_CONTRACT.md §1.1). Without this exchange
+    // "stay signed in" would last exactly one access-token lifetime and then
+    // wipe the credential, which reads as being logged out at random.
+    // verifyToken only returns null on a real HTTP rejection, so this cannot be
+    // reached by simply being offline.
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const afterRefresh = await verifyToken(refreshed);
+      if (afterRefresh) return afterRefresh;
+    }
+
     await clearAllCredentials();
     activeMechanism = null;
     return null;
@@ -396,11 +414,33 @@ async function verifyToken(accessToken: string): Promise<SessionUser | null> {
 }
 
 export async function signOut(): Promise<void> {
-  const cookie = await loadSessionCookie();
-  await clearAllCredentials();
+  // Read the credentials BEFORE wiping them: both server-side revocations below
+  // need the credential that is about to be deleted.
+  const [cookie, tokens] = await Promise.all([loadSessionCookie(), loadTokens()]);
+
+  // The remembered password lives in SecureStore outside the token store, so
+  // clearing credentials alone would leave it behind — signed out, but still
+  // one fingerprint tap away from the next person holding the device.
+  // biometrics.ts documents this wipe as part of its contract.
+  await Promise.all([clearAllCredentials(), disableBiometric()]);
   activeMechanism = null;
-  if (cookie) {
-    // Best-effort server-side sign-out; local credentials are already gone.
+
+  // Best-effort server-side sign-out; local credentials are already gone.
+  if (tokens?.accessToken) {
+    // Without this the refresh token stays valid for its full 60-day lifetime
+    // after the user has signed out (design/API_CONTRACT.md §1.1 lists
+    // /api/auth/mobile/revoke for exactly this). An empty body revokes this
+    // device only.
+    fetch(`${API_BASE_URL}/api/auth/mobile/revoke`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${tokens.accessToken}`,
+      },
+      body: JSON.stringify({}),
+    }).catch(() => undefined);
+  } else if (cookie) {
     fetch(`${API_BASE_URL}/api/auth/signout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookie },

@@ -62,31 +62,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     setBusy(true);
     setError(null);
-    const result = await performSignIn(email, password);
-    if (result.ok) {
+    try {
+      const result = await performSignIn(email, password);
+      if (!result.ok) {
+        setError(result.error);
+        return result;
+      }
       const session = await restoreSession();
       setUser(session);
       setStatus(session ? 'signedIn' : 'signedOut');
       if (!session) {
         const failed = { ok: false as const, error: 'Signed in, but the session could not be restored.' };
         setError(failed.error);
-        setBusy(false);
         return failed;
       }
-    } else {
-      setError(result.error);
+      return result;
+    } catch (err) {
+      // A rejecting SecureStore call (corrupt keystore entry, restored backup)
+      // used to escape before setBusy(false), leaving the sign-in button
+      // spinning until the app was restarted.
+      const message = err instanceof Error ? err.message : 'Could not sign in. Try again.';
+      setError(message);
+      return { ok: false as const, error: message };
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
-    return result;
   }, []);
 
   const signOut = useCallback(async () => {
     setBusy(true);
-    await performSignOut();
-    setUser(null);
-    setError(null);
-    setStatus('signedOut');
-    setBusy(false);
+    try {
+      await performSignOut();
+    } catch {
+      // Storage can fail; the user asked to leave either way, and a permanently
+      // spinning Sign out button is worse than a credential cleaned up next launch.
+    } finally {
+      setUser(null);
+      setError(null);
+      setStatus('signedOut');
+      setBusy(false);
+    }
   }, []);
 
   const completeOnboarding = useCallback(() => {

@@ -315,7 +315,13 @@ export default function SignInScreen() {
                 label={`Remember with ${capabilityLabel(capability.kind)}`}
                 variant="ghost"
                 onPress={onRemember}
-                disabled={biometricBusy || Boolean(missingField())}
+                /*
+                 * Deliberately NOT gated on a complete form: a disabled control
+                 * that explains nothing is the bug this screen already fixed for
+                 * "Sign in". onRemember validates and says which field is missing
+                 * instead of refusing in silence.
+                 */
+                disabled={biometricBusy}
               />
             </>
           ) : null}

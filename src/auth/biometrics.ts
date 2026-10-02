@@ -171,9 +171,15 @@ export async function authenticateForSignIn(): Promise<BiometricSignInResult> {
       ok: false,
       // Distinguishing a deliberate cancel from a failure matters: a cancel is
       // normal and must NOT wipe the stored credential.
-      reason: result.error === 'user_cancel' || result.error === 'system_cancel'
-        ? 'cancelled'
-        : 'failed',
+      // 'user_fallback' is the user choosing "Use password" — a deliberate
+      // cancel. Classifying it as a failure wiped the saved credential the user
+      // had just decided not to use.
+      reason:
+        result.error === 'user_cancel' ||
+        result.error === 'system_cancel' ||
+        result.error === 'user_fallback'
+          ? 'cancelled'
+          : 'failed',
     };
   }
 
