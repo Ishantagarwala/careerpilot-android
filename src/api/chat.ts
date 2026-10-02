@@ -1,5 +1,5 @@
 import { API_BASE_URL, NotAuthenticatedError, ApiError } from './client';
-import { getCredentialHeaders } from './credentials';
+import { getCredentialHeaders, refreshAccessToken } from './credentials';
 import { parseJsonFrame, SseFrameParser } from './sse';
 
 /**
@@ -38,6 +38,29 @@ export interface ChatThread {
   subject?: string;
   updatedAt?: string;
   createdAt?: string;
+}
+
+/**
+ * Wire shape of a thread, as the server actually sends it.
+ *
+ * The `ChatHistory` model calls the field `threadTitle`, and
+ * `app/api/ai-hub/threads/route.ts` selects `threadTitle threadType createdAt
+ * updatedAt`. Reading only `title` left every row on the threads screen
+ * rendered as "Untitled thread" with a dead search box. Both spellings are
+ * accepted so a rename on either side cannot silently blank the list again.
+ */
+interface RawThread extends ChatThread {
+  threadTitle?: string;
+}
+
+function normaliseThread(raw: RawThread): ChatThread {
+  return {
+    _id: raw._id,
+    title: raw.title ?? raw.threadTitle,
+    subject: raw.subject,
+    updatedAt: raw.updatedAt,
+    createdAt: raw.createdAt,
+  };
 }
 
 export interface DocumentRef {
@@ -79,6 +102,41 @@ export interface StreamCallbacks {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Open the SSE request with the current credential.
+ *
+ * Extracted so a 401 can be retried with a refreshed token: the headers — and
+ * therefore the credential — have to be resolved again on the retry.
+ */
+async function openStream(
+  request: ChatRequest,
+  signal?: AbortSignal,
+): Promise<ReturnType<typeof fetch>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    ...(await getCredentialHeaders()),
+  };
+  if (!headers.Authorization && !headers.Cookie) throw new NotAuthenticatedError();
+
+  // Imported lazily: `expo/fetch` is native-backed and must not be pulled into
+  // any bundle path that only needs the plain JSON client.
+  const { fetch: expoFetch } = await import('expo/fetch');
+
+  return expoFetch(`${API_BASE_URL}/api/ai-hub/chat`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      message: request.message,
+      ...(request.threadId ? { threadId: request.threadId } : {}),
+      ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
+      ...(request.modelSelection ? { modelSelection: request.modelSelection } : {}),
+      ...(request.documentIds?.length ? { documentIds: request.documentIds } : {}),
+    }),
+    signal,
+  });
+}
+
+/**
  * Stream a chat turn.
  *
  * React Native's global `fetch` cannot stream — `response.body` is null — so
@@ -93,29 +151,17 @@ export async function streamChat(
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'text/event-stream',
-    ...(await getCredentialHeaders()),
-  };
-  if (!headers.Authorization && !headers.Cookie) throw new NotAuthenticatedError();
+  let res = await openStream(request, signal);
 
-  // Imported lazily: `expo/fetch` is native-backed and must not be pulled into
-  // any bundle path that only needs the plain JSON client.
-  const { fetch: expoFetch } = await import('expo/fetch');
-
-  const res = await expoFetch(`${API_BASE_URL}/api/ai-hub/chat`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      message: request.message,
-      ...(request.threadId ? { threadId: request.threadId } : {}),
-      ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
-      ...(request.modelSelection ? { modelSelection: request.modelSelection } : {}),
-      ...(request.documentIds?.length ? { documentIds: request.documentIds } : {}),
-    }),
-    signal,
-  });
+  // Access tokens live 15 minutes (design/API_CONTRACT.md §1.1). The JSON client
+  // refreshes on 401 and the SSE path must do the same, otherwise the first Hub
+  // message after a pause is refused with "Your session expired" for a user who
+  // is still perfectly signed in. refreshAccessToken is single-flight, so a
+  // concurrent apiFetch 401 shares this one rotation instead of racing it.
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) res = await openStream(request, signal);
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -213,14 +259,14 @@ function emit(event: ChatEvent, callbacks: StreamCallbacks): void {
 /* -------------------------------------------------------------------------- */
 
 interface ThreadListResponse {
-  threads?: ChatThread[];
+  threads?: RawThread[];
 }
 
 export async function listThreads(): Promise<ChatThread[]> {
   const { apiFetch } = await import('./client');
-  const data = await apiFetch<ThreadListResponse | ChatThread[]>('/api/ai-hub/threads');
-  if (Array.isArray(data)) return data;
-  return data?.threads ?? [];
+  const data = await apiFetch<ThreadListResponse | RawThread[]>('/api/ai-hub/threads');
+  if (Array.isArray(data)) return data.map(normaliseThread);
+  return (data?.threads ?? []).map(normaliseThread);
 }
 
 export interface ThreadMessage {
@@ -231,7 +277,7 @@ export interface ThreadMessage {
 
 interface ThreadDetailResponse {
   messages?: ThreadMessage[];
-  thread?: ChatThread;
+  thread?: RawThread;
 }
 
 export async function getThread(id: string): Promise<{
@@ -239,6 +285,15 @@ export async function getThread(id: string): Promise<{
   thread?: ChatThread;
 }> {
   const { apiFetch } = await import('./client');
-  const data = await apiFetch<ThreadDetailResponse>(`/api/ai-hub/threads/${id}`);
-  return { messages: data?.messages ?? [], thread: data?.thread };
+  // The route has answered with `{ messages, thread }`; tolerate the thread
+  // document itself as well, since that is what /threads returns per item.
+  const data = await apiFetch<ThreadDetailResponse & Partial<RawThread>>(
+    `/api/ai-hub/threads/${id}`,
+  );
+  const thread = data?.thread
+    ? normaliseThread(data.thread)
+    : data?._id
+      ? normaliseThread(data as RawThread)
+      : undefined;
+  return { messages: data?.messages ?? [], thread };
 }

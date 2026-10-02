@@ -126,6 +126,32 @@ test('joins multiple data lines in one frame with a newline', () => {
   assert.equal(frame?.data, '{"a":1,\n"b":2}');
 });
 
+test('frames several CRLF-delimited events while streaming', () => {
+  // The regression this guards: the boundary search only knew "\n\n", so CRLF
+  // frames emitted nothing during the stream and collapsed into one blob at
+  // flush — an empty reply with no error to explain it.
+  const p = new SseFrameParser();
+  const frames = p.push(
+    enc(
+      'data: {"type":"token","content":"a"}\r\n\r\n' +
+        'data: {"type":"token","content":"b"}\r\n\r\n' +
+        'data: {"type":"done","reply":"ab"}\r\n\r\n',
+    ),
+  );
+  assert.equal(frames.length, 3);
+  assert.equal((parseJsonFrame<{ content: string }>(frames[1]!) ?? {}).content, 'b');
+  assert.deepEqual(parseJsonFrame(frames[2]!), { type: 'done', reply: 'ab' });
+});
+
+test('a CRLF split across two chunks is not mistaken for a line ending', () => {
+  // The CR arrives alone; it must be held rather than treated as a terminator.
+  const p = new SseFrameParser();
+  assert.equal(p.push(enc('data: {"type":"token","content":"x"}\r')).length, 0);
+  const frames = p.push(enc('\n\r\n'));
+  assert.equal(frames.length, 1);
+  assert.equal((parseJsonFrame<{ content: string }>(frames[0]!) ?? {}).content, 'x');
+});
+
 test('tolerates CRLF line endings', () => {
   // Proxies rewrite line endings; the frame separator then becomes \r\n\r\n,
   // which contains \n\n only if the \r is trimmed. Assert current behaviour so

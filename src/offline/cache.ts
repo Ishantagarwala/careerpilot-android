@@ -61,11 +61,25 @@ export async function cached<T>(
 ): Promise<{ value: T | null; stale: boolean; at: number | null; error: unknown }> {
   try {
     const value = await fetcher();
+
+    // A null/undefined result is a real answer — "no roadmap generated yet" —
+    // but it is not worth caching: storing it makes a later offline read report
+    // a stale hit for something that never existed, and pins an empty state
+    // over a roadmap that may have been created since. getRoadmap documents the
+    // same intent for the 404 it turns into null.
+    if (value === null || value === undefined) {
+      return { value: null, stale: false, at: null, error: null };
+    }
+
     await writeCache(key, value);
     return { value, stale: false, at: Date.now(), error: null };
   } catch (error) {
     const hit = await readCache<T>(key);
-    if (hit) return { value: hit.value, stale: true, at: hit.at, error };
+    // Treat a stored null as a miss too, so entries written before this rule
+    // existed heal instead of showing a phantom "saved" banner.
+    if (hit && hit.value !== null && hit.value !== undefined) {
+      return { value: hit.value, stale: true, at: hit.at, error };
+    }
     return { value: null, stale: false, at: null, error };
   }
 }

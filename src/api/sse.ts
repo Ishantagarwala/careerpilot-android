@@ -32,15 +32,33 @@ export class SseFrameParser {
   /** Feed one chunk. Returns every frame completed by this chunk. */
   push(chunk: Uint8Array): SseDataFrame[] {
     this.buffer += this.decoder.decode(chunk, { stream: true });
+    this.normaliseLineEndings();
     return this.drain(false);
   }
 
   /** Flush a trailing frame that arrived without its terminating blank line. */
   flush(): SseDataFrame[] {
     this.buffer += this.decoder.decode();
+    // Nothing follows, so a trailing CR can no longer be half of a CRLF.
+    this.buffer = foldLineEndings(this.buffer);
     const frames = this.drain(true);
     this.buffer = '';
     return frames;
+  }
+
+  /**
+   * CRLF and bare CR are both legal SSE line terminators, but the frame
+   * boundary is searched as "\n\n" — so without this a proxy that rewrites line
+   * endings produced zero frames while streaming and one unparseable blob at
+   * close: a silently empty reply.
+   *
+   * A trailing CR is held back because it may be the first half of a CRLF that
+   * arrives in the next chunk.
+   */
+  private normaliseLineEndings(): void {
+    const held = this.buffer.endsWith('\r');
+    const body = held ? this.buffer.slice(0, -1) : this.buffer;
+    this.buffer = foldLineEndings(body) + (held ? '\r' : '');
   }
 
   private drain(includeTrailing: boolean): SseDataFrame[] {
@@ -62,6 +80,11 @@ export class SseFrameParser {
 
     return frames;
   }
+}
+
+/** Fold CRLF and lone CR down to the LF the framing logic expects. */
+function foldLineEndings(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
 /**

@@ -125,7 +125,10 @@ export async function updateProgress(input: {
   subtopicId?: string;
 }): Promise<Roadmap | null> {
   const data = await apiFetch<{ roadmap?: Roadmap }>('/api/roadmap/progress', {
-    method: 'POST',
+    // PUT, not POST. The route exports only PUT, so POST answers 405 and every
+    // milestone toggle failed — verified against production: POST returns 405,
+    // PUT returns 401 (i.e. the route is there and wants a credential).
+    method: 'PUT',
     body: {
       topicId: input.topicId,
       milestoneId: input.milestoneId,
