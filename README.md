@@ -7,10 +7,12 @@ This is the **mobile client only**. The Next.js web app, API and MongoDB live in
 the [`CareerPliot`](https://github.com/Ishantagarwala/CareerPliot) repository and
 are consumed over HTTPS at `https://careerpilot.cc/api/*`.
 
-> **Status: design & planning.** No application code yet. The repository
-> currently holds the architecture plan, the design contract, and ten rendered
-> screen mockups. Application scaffolding begins after the open decisions in
-> `design/README.md` are settled.
+> **Status: implemented, one server step outstanding.** The Expo + React Native
+> client is built: auth (token exchange with a NextAuth cookie fallback),
+> the AI hub with SSE streaming, career assessment, roadmap, resume/ATS,
+> projects and jobs, plus an offline read-through cache. Mobile sign-in is
+> refused until Play Integrity credentials are configured on the server
+> (`design/API_CONTRACT.md` §1.2) — deliberate, not a bug.
 
 ---
 
