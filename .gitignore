@@ -1,31 +1,18 @@
-# dependencies
+# Design-only repository.
+#
+# The app toolchain entries that used to live here (node_modules, .expo,
+# android/app/build, *.apk, eas.json, jest cache) went with the implementation.
+# What remains is the mockup render pipeline.
+
+# dependencies, if you install playwright to re-render the mockups
 node_modules/
-.pnp/
-.pnp.js
 
-# Expo / React Native
-.expo/
-dist/
-web-build/
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-*.orig.*
-expo-env.d.ts
+# python (mockup render pipeline)
+__pycache__/
+*.py[cod]
 
-# Android build output
-android/app/build/
-android/build/
-android/.gradle/
-android/local.properties
-*.aab
-*.apk
-
-# EAS
-.easignore
-# NOT ignoring eas.json — it holds non-secret build profiles
+# rendered intermediates — build.py writes NN-*.html next to screens.py
+design/[0-9][0-9]-*.html
 
 # env & secrets — never commit
 .env
@@ -34,29 +21,9 @@ android/local.properties
 
 # logs
 *.log
-npm-debug.log*
-yarn-error.log*
 
 # editors / OS
 .DS_Store
 .idea/
 .vscode/*
 !.vscode/extensions.json
-
-# python (mockup render pipeline)
-__pycache__/
-*.py[cod]
-
-# native debug symbols
-*.hprof
-
-# expo export output
-/expo-export/
-/dist/
-
-# Play Console service-account key for `eas submit` — a credential, never committed
-play-service-account.json
-*.serviceaccount.json
-
-# jest transform cache
-.jest-cache/

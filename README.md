@@ -1,18 +1,12 @@
-# CareerPilot — Android
+# CareerPilot — Android design
 
-Android client for [CareerPilot](https://careerpilot.cc) — the AI study hub,
-career roadmap and resume tool for students working toward a specific career goal.
+The **design contract** for the CareerPilot Android client: the written specs,
+the stylesheet and fonts the mockups are drawn with, and the rendered screens.
 
-This is the **mobile client only**. The Next.js web app, API and MongoDB live in
-the [`CareerPliot`](https://github.com/Ishantagarwala/CareerPliot) repository and
-are consumed over HTTPS at `https://careerpilot.cc/api/*`.
-
-> **Status: implemented, one server step outstanding.** The Expo + React Native
-> client is built: auth (token exchange with a NextAuth cookie fallback),
-> the AI hub with SSE streaming, career assessment, roadmap, resume/ATS,
-> projects and jobs, plus an offline read-through cache. Mobile sign-in is
-> refused until Play Integrity credentials are configured on the server
-> (`design/API_CONTRACT.md` §1.2) — deliberate, not a bug.
+> **Status: design only.** This repository no longer carries an app
+> implementation — earlier commits (`b5063d7` and before) held an Expo client
+> that has since been superseded. The current client consumes these documents as
+> its visual and architectural contract.
 
 ---
 
@@ -21,96 +15,52 @@ are consumed over HTTPS at `https://careerpilot.cc/api/*`.
 | Path | What it is |
 | --- | --- |
 | `design/ANDROID_APP_PLAN.md` | Architecture, endpoint compatibility matrix, server-side blockers, phased roadmap, release checklist |
-| `design/DESIGN_SPEC.md` | The visual contract — both brand languages, lime rules, type scale, components, motion, accessibility |
-| `design/API_CONTRACT.md` | **What the Android app needs from the web repo.** Read before changing anything on the server. |
-| `design/screens.py` | The ten screens, authored as HTML against the real design tokens |
-| `design/png/` | Rendered screens — the design deliverables |
+| `design/DESIGN_SPEC.md` | The visual contract — both brand languages, lime rules, type scale, spacing, radius, elevation, components, motion, accessibility |
+| `design/API_CONTRACT.md` | **What the Android client needs from the web repo.** Read before changing anything server-side. |
+| `design/screens.py` | The ten screens, authored as HTML |
+| `design/android-shared.css` | The stylesheet they are drawn with — every token lifted from the web app's `globals.css` |
+| `design/build.py` · `design/shot.mjs` | Renders `screens.py` to the PNGs |
+| `design/png/` | The rendered screens, and `00-contact-sheet.png` with all ten |
+| `design/fonts/` | Anybody, Hanken Grotesk and Space Grotesk, self-hosted |
 
 ## Start here
 
-1. `design/ANDROID_APP_PLAN.md` §2 — two verified blockers in the web repo that
-   prevent *any* Android client from authenticating. These are Phase 0.
+1. `design/png/00-contact-sheet.png` — all ten screens at a glance.
 2. `design/DESIGN_SPEC.md` §1 — the two design languages the product already
    runs, and the tokens for each.
-3. `design/png/00-contact-sheet.png` — all ten screens at a glance.
+3. `design/ANDROID_APP_PLAN.md` §2 — the server-side blockers that must be
+   settled before *any* Android client can authenticate. These are Phase 0.
+
+The ten screens: `01` sign in · `02` AI Hub chat · `03` threads drawer ·
+`04` career · `05` roadmap · `06` build · resume · `07` build · jobs · `08` me ·
+`09` first run · `10` dark + offline.
 
 ## Regenerating the mockups
 
-Requires Python 3, Node and ImageMagick.
-
 ```bash
 cd design
-npm install          # Playwright + its Firefox build
-npm run render       # -> png/*.png
-npm run contact-sheet
+npm install playwright    # first time only
+python3 build.py          # writes the .html, then the .png
 ```
 
-The mockups are real HTML/CSS rendered through headless Firefox at true Android
-density (412×915 @2x) — not image-model output — so text is genuinely readable
-and the set is reproducible. `design/README.md` has the details.
+Requires Python 3 and Node. `build.py` writes one `.html` per screen from
+`screens.py`; `shot.mjs` then screenshots each at 592×1010 CSS px and 2×,
+producing the 1184×2020 PNGs. The mockups are real HTML/CSS rendered headlessly
+— not image-model output — so the text is genuinely readable and the set is
+reproducible.
 
-## The app
-
-- **Stack:** Expo + React Native, TypeScript
-- **Backend:** the existing production API, no second server
-- **Builds:** EAS cloud build (no local Android SDK required)
-- **Distribution:** Play Store internal testing
-- **Tabs:** Hub · Career · Build · Me
-
-## Building the APK
-
-Cloud build via EAS — no local Android SDK required.
-
-```bash
-npx eas-cli@latest login                   # one-time, interactive
-npx eas-cli@latest build --platform android --profile preview
-```
-
-> The global `eas` command is not `npx eas` — that package name resolves to
-> nothing. Use `npx eas-cli@latest`, or install `eas-cli` globally.
->
-> A cloud build requires an Expo account; `eas whoami` reports `Not logged in`
-> until you authenticate. That login is interactive, so it has to be you.
-
-| Profile | Output | Use |
-| --- | --- | --- |
-| `development` | APK + dev client | local debugging against Metro |
-| `preview` | APK | sideload to a phone — **start here** |
-| `production` | AAB | Play Console upload |
-
-**Two things must be set before a build will sign in successfully:**
-
-1. `EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER` — the Google Cloud project
-   number. Without it the app reports that it cannot verify itself, which is
-   accurate. Set it in `eas.json` under the profile's `env`, or as an EAS
-   environment variable.
-2. The matching `PLAY_INTEGRITY_*` values on the **server**
-   (see the web repo's `.env.example`). Configuring only one side does not work,
-   and the error message says so.
-
-`eas submit` expects the Play service-account key at
-`./play-service-account.json`. It is gitignored — never commit it.
-
-## Permissions
-
-Only two are declared, and both are requested at the point of use rather than on
-launch:
-
-| Permission | Requested when | State |
-| --- | --- | --- |
-| `USE_BIOMETRIC` | the user chooses "Remember with fingerprint/face" on sign-in | wired |
-| `RECORD_AUDIO` | the voice feature is first used | **not yet** — voice is not built |
-
-`RECORD_AUDIO` is declared but never requested, because there is no microphone
-feature to attach it to yet. Declaring it early is harmless; requesting it on
-launch would not be, and asking before the user has seen the feature is how you
-earn a permanent denial.
+The renderer is **Chromium**, because that is what Playwright installs by
+default. It previously required Firefox, so the generator failed on a fresh
+clone with `Executable doesn't exist at …/firefox-…` and the committed PNGs were
+never reproducible from source. Re-rendering now reproduces them: identical
+dimensions, and a mean per-channel difference under 5/255 against the committed
+files — font rasterisation only, with no layout or colour change.
 
 ## Open decisions
 
-Blocking the design from being final:
+Still blocking the design from being final:
 
-1. **Career/Roadmap visual language** — screens 04 and 05 currently use the brand
+1. **Career/Roadmap visual language** — screens 04 and 05 use the brand
    cream/lime language. `PRODUCT.md` says lime is an action, not a coat of paint,
    and two consecutive lime-heavy tabs bends that rule. Either keep it, or move
    both to the neutral hub language and reserve lime for the pinned-direction
@@ -120,9 +70,18 @@ Blocking the design from being final:
    and the web login chain hard-fails without a valid token.
 3. **Auth mechanism** — device token exchange (recommended) vs `SameSite=None`
    cookies. Auth.js defaults to `SameSite=Lax`, which a native client cannot use.
+4. **Type floor** — `DESIGN_SPEC.md` §3 forbids type below 11px, but
+   `android-shared.css` draws the ring caption, stat-tile captions and tab
+   labels at 10–10.5px. The §9 checklist is the stricter of the two; an
+   implementation should hold the 11px floor.
 
 ## Provenance
 
-The web app lives at `Ishantagarwala/CareerPliot`. Design tokens in
+The web app lives at `Ishantagarwala/CareerPliot`. The tokens in
 `design/android-shared.css` are copied from that repo's `app/globals.css` and
-must be kept in sync — see `design/DESIGN_SPEC.md` §1 for the canonical values.
+must be kept in sync — `design/DESIGN_SPEC.md` §1 carries the canonical values,
+and where the two disagree, `globals.css` wins.
+
+## Licence
+
+See `LICENSE`.

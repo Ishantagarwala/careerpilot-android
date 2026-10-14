@@ -13,7 +13,7 @@ Architecture plan and rendered screen mockups for the CareerPilot Android app.
 ## Why the mockups are code, not images
 
 These are **not** image-model renders. Each screen is real HTML/CSS rendered to PNG
-through headless Firefox at true Android density (412×915 @2x). That means:
+through headless Chromium at true Android density (412×915 @2x). That means:
 
 - text is genuinely readable, because it is real text
 - every colour is the actual token from `app/globals.css`, not an approximation
@@ -24,24 +24,29 @@ The three brand typefaces (Hanken Grotesk, Space Grotesk, Anybody) are bundled i
 
 ## Regenerating the PNGs
 
-Requires Python 3 and Node.
+Requires Python 3, Node, and ImageMagick for the contact sheet.
 
 ```bash
-npm install          # installs Playwright + its Firefox build
-npm run render       # -> png/*.png
+npm install playwright    # first time only — provides the headless browser
+python3 build.py          # -> the NN-*.html, then png/*.png
+./make-contact-sheet.sh   # -> png/00-contact-sheet.png
 ```
 
-`npm run render` is just `python3 build.py`, which writes the intermediate
-`NN-*.html` files and screenshots each one.
+`build.py` writes the intermediate `NN-*.html` files from `screens.py`, then runs
+`shot.mjs` to screenshot each one at 592×1010 CSS px and 2×, giving the
+1184×2020 PNGs.
 
-`png/00-contact-sheet.png` is a montage of all ten, regenerated separately. Note
-the screen list is spelled out on purpose — a `png/0*.png` glob also matches
-`00-contact-sheet.png`, which gives montage 11 inputs for a 10-tile grid and
-makes it silently split the output into `00-contact-sheet-0.png` and `-1.png`:
+The renderer is **Chromium**, because that is what Playwright installs by
+default. It previously required Firefox, so the generator failed on a fresh
+clone with `Executable doesn't exist at …/firefox-…`, and the committed PNGs
+were not reproducible from source. Re-rendering now reproduces them: identical
+dimensions, and a mean per-channel difference under 5/255 against the committed
+files — font rasterisation only, with no layout or colour change.
 
-```bash
-npm run contact-sheet
-```
+`make-contact-sheet.sh` builds the 5×2 sheet. The screen list inside it is
+spelled out on purpose — a `png/0*.png` glob also matches
+`00-contact-sheet.png` itself, which gives montage 11 inputs for a 10-tile grid
+and makes it silently split the output into `00-contact-sheet-0.png` and `-1.png`.
 
 ## The screens
 
@@ -64,9 +69,10 @@ These mockups hard-code the token values in `android-shared.css`. The web app
 owns them, and `app/globals.css` changes regularly — so when it does, this
 stylesheet has to be updated by hand.
 
-`DESIGN_SPEC.md` §1 documents the canonical values. Before the Android app
-itself is built, replace this hand-copying with a generated `tokens.json`
-exported from the web repo, so the app can never drift from the brand.
+`DESIGN_SPEC.md` §1 documents the canonical values. The API contract now lives in
+`API_CONTRACT.md`; if the client ever grows a generated `tokens.json` exported
+from the web repo, this hand-copying can go away and the app can no longer drift
+from the brand.
 
 ## Design decisions still open
 
