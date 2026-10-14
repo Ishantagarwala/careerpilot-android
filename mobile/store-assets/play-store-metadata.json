@@ -1,0 +1,43 @@
+{
+  "storeListing": {
+    "title": "Career Pilot: AI Career Guide",
+    "shortDescription": "Personalized career roadmaps, PDF note summaries, ATS resume tools & AI tutoring",
+    "fullDescription": "Take full control of your future with Career Pilot — the AI-powered learning and career acceleration platform designed for students, job seekers, and career changers.\n\nNAVIGATE YOUR CAREER WITH INTELLIGENCE\n• Smart Career Discovery: Complete intuitive assessments of your interests, goals, subjects, and skills. Our AI analyzes your unique strengths to recommend matched career trajectories.\n• Stage-Wise Roadmaps: Follow structured learning roadmaps partitioned into Beginner, Intermediate, and Advanced stages with concrete milestones.\n• Filtered Course Recommendations: Access vetted free and top-rated paid courses directly linked to your active learning objectives.\n\nAI STUDY COMPANION & TUTORING\n• PDF Syllabus & Note Summarization: Upload academic syllabi, lecture notes, or textbooks (up to 10 MB). Get structured summaries, chapter breakdowns, and instant review insights.\n• Practice Quizzes & Flashcards: Automatically generate multiple-choice quizzes and interactive flashcards from your uploaded documents.\n• 24/7 Contextual AI Tutor: Have natural conversations with an AI study tutor that understands your selected course materials and learning stage.\n\nCAREER ACCELERATION & TOOLS\n• ATS Resume Builder & Analyzer: Craft clean, structured resumes, run instant ATS compatibility audits with keyword analysis, and export professional multi-page PDFs.\n• Job Application Tracker: Monitor opportunities across Saved, Applied, Screening, Interview, and Offer stages with custom note tracking.\n• Hackathons & Team Finder: Discover upcoming developer hackathons and find collaborators with real contact channels.\n• Tech News Feed: Stay updated with curated headlines in AI, tech startups, and hiring trends.\n• Focus Study Timer: Stay productive with customizable pomodoro focus intervals and device-local study streak tracking.\n\nPRIVACY & SECURITY FIRST\n• 100% Student Data Ownership: Your notes, goals, and resumes belong exclusively to you.\n• Hardware-Backed Security: Native session credentials are protected inside Android Keystore via SecureStore.\n• Encrypted in Transit: All data is transmitted over secure HTTPS/TLS.\n• Self-Service Account Deletion: Delete your account and all associated cloud data at any time directly in-app or via our web portal.",
+    "category": "EDUCATION",
+    "contentRating": "PEGI 3 / Everyone",
+    "targetAudience": ["13-17", "18+"],
+    "contact": {
+      "email": "support@careerpilot.app",
+      "website": "https://careerpilot.app",
+      "privacyPolicy": "https://careerpilot.app/privacy"
+    }
+  },
+  "dataSafety": {
+    "dataCollected": [
+      {
+        "category": "Personal Info",
+        "types": ["Name", "Email Address"],
+        "purposes": ["App functionality", "Account management"],
+        "isOptional": false
+      },
+      {
+        "category": "User Content",
+        "types": ["Uploaded Files/Documents", "Notes", "Resumes"],
+        "purposes": ["App functionality"],
+        "isOptional": true
+      },
+      {
+        "category": "App Info and Performance",
+        "types": ["Crash Logs", "Diagnostics"],
+        "purposes": ["Analytics", "App functionality"],
+        "isOptional": false
+      }
+    ],
+    "dataShared": "No user data is shared with third parties or advertisers.",
+    "securityPractices": {
+      "encryptionInTransit": true,
+      "accountDeletionWebLink": "https://careerpilot.app/account-deletion",
+      "inAppDeletion": true
+    }
+  }
+}

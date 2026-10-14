@@ -1,0 +1,41 @@
+{
+  "cli": {
+    "version": ">= 14.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "_comment": "A dev client runs on a device sharing your wifi, so a LAN address is correct here. It must be YOUR machine's current IP — 192.168.x.x changes between networks. Cleartext HTTP is allowed in a dev build; a release build is not, so use https for any other profile.",
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.7:3000"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "_comment": "An installable APK for testers. It must reach the deployed server, not a developer's laptop — a LAN address here is why the previous preview APK failed every request off the author's wifi. app.config.js rejects a private address for this profile.",
+        "EXPO_PUBLIC_API_URL": "https://careerpilot.cc"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "_comment": "Previously unset, which made the app fall back to http://10.0.2.2:3000 — the Android emulator's alias for the host — so a store build could never reach a server. app.config.js now fails the build if this is missing or private.",
+        "EXPO_PUBLIC_API_URL": "https://careerpilot.cc"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
+      }
+    }
+  }
+}

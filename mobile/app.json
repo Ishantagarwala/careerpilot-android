@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Career Pilot",
+    "slug": "career-pilot",
+    "version": "1.0.0",
+    "scheme": "careerpilot",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.careerpilot.app"
+    },
+    "android": {
+      "package": "com.careerpilot.app",
+      "versionCode": 1,
+      "permissions": [],
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0A0A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": true,
+      "edgeToEdge": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c0b0c41c-3c15-47c8-9ec5-0c46e7c5eb56"
+      }
+    },
+    "owner": "pacific_xd"
+  }
+}
