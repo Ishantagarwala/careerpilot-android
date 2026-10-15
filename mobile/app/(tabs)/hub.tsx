@@ -256,6 +256,8 @@ export default function HubScreen() {
     newChat?: string;
     docId?: string;
     docName?: string;
+    /** Dictated on another screen (e.g. Career) and handed over to compose here. */
+    voicePrompt?: string;
   }>();
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -263,6 +265,8 @@ export default function HubScreen() {
   const [threadSubject, setThreadSubject] = useState<string | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
+  /** Tracks the last dictation handed over, so it is applied exactly once. */
+  const appliedVoicePromptRef = React.useRef<string | null>(null);
   const [isLoadingThread, setIsLoadingThread] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -294,6 +298,21 @@ export default function HubScreen() {
     }
     setSelectedDocs(docs.slice(0, 3));
   }, [params.docId, params.docName]);
+
+  /*
+   * A prompt dictated on another screen arrives as a query param. It is placed
+   * in the composer rather than sent immediately: it can then be corrected
+   * before it costs a request, and there is no race with the thread-loading
+   * effect above. The ref guard means a re-render (or a hot reload) cannot
+   * apply the same dictation twice.
+   */
+  useEffect(() => {
+    const dictated = params.voicePrompt?.trim();
+    if (!dictated) return;
+    if (appliedVoicePromptRef.current === dictated) return;
+    appliedVoicePromptRef.current = dictated;
+    setInputMessage(dictated);
+  }, [params.voicePrompt]);
 
   const loadThread = useCallback(
     async (targetThreadId?: string) => {

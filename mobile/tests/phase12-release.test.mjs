@@ -57,7 +57,29 @@ test('Phase 12: app.json release configuration and Android Play compliance', () 
   assert.equal(typeof expo.android.versionCode, 'number');
   assert.ok(expo.android.versionCode >= 1, 'versionCode must be >= 1');
   assert.ok(Array.isArray(expo.android.permissions), 'android permissions must be an explicit array');
-  assert.equal(expo.android.permissions.length, 0, 'no unnecessary dangerous permissions for store submission');
+  /*
+   * This previously required the permission list to be EMPTY. The intent — "no
+   * unnecessary dangerous permissions" — is right, but emptiness was only a
+   * proxy for it, and the app now legitimately records audio for its voice
+   * feature.
+   *
+   * The rule is therefore stated directly: every declared permission must be one
+   * we have deliberately justified, and anything else fails. That is stricter in
+   * the way that matters, because adding a permission now requires editing this
+   * list and giving a reason.
+   */
+  const JUSTIFIED_PERMISSIONS = new Set([
+    // Voice input: a clip is recorded and uploaded for transcription. Declared
+    // explicitly rather than relying on the expo-audio plugin, so a plugin
+    // change cannot silently drop it and leave recording failing on device.
+    'android.permission.RECORD_AUDIO',
+  ]);
+  for (const permission of expo.android.permissions) {
+    assert.ok(
+      JUSTIFIED_PERMISSIONS.has(permission),
+      `unjustified Android permission for store submission: ${permission}`
+    );
+  }
 
   // Splash & Adaptive Icon
   assert.ok(expo.splash, 'splash configuration must exist');

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,9 @@ import { usePalette } from '../../src/theme/ThemeContext';
 import { usePrimitiveSkin } from '../../src/components/primitives/skin';
 import { useAuth } from '../../src/context/AuthContext';
 import { AppHeader } from '../../src/components/navigation/AppHeader';
+import { VoiceHUD } from '../../src/components/VoiceHUD';
+import { useVoice } from '../../src/voice/useVoice';
+import { getVoiceRepliesEnabled } from '../../src/voice/preferences';
 import { spacing, targetSizes, typography, radii } from '../../src/theme/tokens';
 import { useBrandElevation } from '../../src/components/brand/brandElevation';
 import {
@@ -219,6 +222,38 @@ export default function CareerScreen() {
         rec.careerPath.trim().toLowerCase() === roadmap.careerPath.trim().toLowerCase(),
     }));
 
+  /*
+   * Voice, for real this time.
+   *
+   * The mic carried `accessibilityLabel="Ask CareerPilot by voice"` while its
+   * handler was `router.push('/(tabs)/hub')` — it navigated, and a screen reader
+   * announced a capability that did not exist. It now opens a session, and the
+   * transcript is handed to the Hub's composer so it can be corrected before it
+   * is sent.
+   */
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  /*
+   * The Me screen's "Voice replies" switch was persisted and never read, so it
+   * changed nothing. It is read here, and gates playback below.
+   */
+  const [speakReplies, setSpeakReplies] = useState(true);
+  useEffect(() => {
+    let active = true;
+    void getVoiceRepliesEnabled().then((enabled) => {
+      if (active) setSpeakReplies(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, [voiceOpen]);
+
+  const voice = useVoice({
+    onUtterance: (text) => {
+      setVoiceOpen(false);
+      router.push(`/(tabs)/hub?voicePrompt=${encodeURIComponent(text)}` as any);
+    },
+  });
+
   return (
     <View style={[styles.container, { backgroundColor: brand.background }]}>
       {/*
@@ -232,7 +267,7 @@ export default function CareerScreen() {
         language="brand"
         trailing={<Mic size={targetSizes.iconSize} color={brandSkin.text} />}
         trailingLabel="Ask CareerPilot by voice"
-        onTrailingPress={() => router.push('/(tabs)/hub' as any)}
+        onTrailingPress={() => setVoiceOpen(true)}
       />
 
       <ScrollView
@@ -530,6 +565,36 @@ export default function CareerScreen() {
           </>
         )}
       </ScrollView>
+
+      {/*
+        * The voice session. `onUtterance` navigates to the Hub with the
+        * transcript, so this screen owns capture and the Hub owns the reply —
+        * which also means the audio playback path lives in one place.
+        */}
+      <VoiceHUD
+        visible={voiceOpen}
+        speakReplies={speakReplies}
+        phase={voice.phase}
+        label={voice.label}
+        error={voice.error}
+        transcript={voice.transcript}
+        busy={voice.busy}
+        language={voice.language}
+        onLanguageChange={voice.setLanguage}
+        onToggleRecording={() => void voice.toggleRecording()}
+        onTranscriptChange={voice.setTranscript}
+        onSubmit={() => {
+          const text = voice.transcript.trim();
+          if (!text) return;
+          voice.cancel();
+          setVoiceOpen(false);
+          router.push(`/(tabs)/hub?voicePrompt=${encodeURIComponent(text)}` as any);
+        }}
+        onCancel={() => {
+          voice.cancel();
+          setVoiceOpen(false);
+        }}
+      />
     </View>
   );
 }

@@ -8,6 +8,10 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  VOICE_REPLIES_KEY,
+  setVoiceRepliesEnabled,
+} from '../../src/voice/preferences';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Compass, Settings, Timer } from 'lucide-react-native';
@@ -78,7 +82,12 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 ];
 
 /** Device-local preference: read replies aloud. */
-const VOICE_REPLIES_KEY = '@careerpilot_voice_replies';
+/*
+ * The preference key and its reader live together in
+ * src/voice/preferences.ts, so the writer here and the reader in the voice
+ * session cannot drift apart — which is exactly what happened: this screen
+ * persisted the setting and nothing ever read it.
+ */
 
 /** Short, stable digest of the remembered session — the row's fingerprint. */
 function fingerprintOf(token: string): string {
@@ -213,11 +222,8 @@ export default function MeScreen() {
 
   const handleVoiceReplies = async (next: boolean) => {
     setVoiceReplies(next);
-    try {
-      await AsyncStorage.setItem(VOICE_REPLIES_KEY, next ? 'on' : 'off');
-    } catch {
-      // The switch still reflects the tap for this session.
-    }
+    // Persisted through the shared helper, which the voice session reads.
+    await setVoiceRepliesEnabled(next);
   };
 
   const handleRefresh = () => {
